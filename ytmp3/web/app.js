@@ -8,21 +8,36 @@ function stored(key, fallback) {
 }
 const savedPlaylists = stored("ytmp3_playlists", []);
 const savedQueue = stored("ytmp3_queue", []);
+const savedFavorites = stored("ytmp3_favorites", []);
+const savedHidden = stored("ytmp3_hidden_tracks", []);
 const savedSettings = stored("ytmp3_settings", {});
 const state = {
   tracks: [],
+  trackById: new Map(),
+  visibleLimit: 100,
   queue: Array.isArray(savedQueue) ? savedQueue.filter((id) => typeof id === "string") : [],
   playlists: Ytmp3Playlists.sanitize(savedPlaylists),
+  favorites: Array.isArray(savedFavorites) ? savedFavorites.filter((id) => typeof id === "string") : [],
+  hiddenTracks: new Set(Array.isArray(savedHidden) ? savedHidden.filter((id) => typeof id === "string") : []),
+  selectedTracks: new Set(),
+  selectionMode: false,
+  layout: ["list", "tiles", "compact"].includes(savedSettings.libraryView)
+    ? savedSettings.libraryView : savedSettings.dense ? "compact" : "list",
   selectedPlaylist: null,
-  settings: { theme: "dark", dense: false, speed: 1, ...savedSettings },
+  settings: { theme: "dark", speed: 1, ...savedSettings },
   nativePlayback: {},
   current: -1,
   view: ["library", "playlists", "queue", "settings", "about"].includes(location.hash.slice(1))
     ? location.hash.slice(1) : "library",
   filter: "",
   folder: "",
+  favoritesOnly: false,
   sort: savedSettings.sort || "recent",
   artVersion: 0,
+  update: null,
+  updateChecking: false,
+  updateCheckSilent: true,
+  updateJob: null,
   urlDraft: "",
   repeat: "off",
   shuffle: false,
@@ -43,7 +58,6 @@ function persistLists() {
 }
 function persistSettings() {
   localStorage.setItem("ytmp3_settings", JSON.stringify(state.settings));
-  document.documentElement.dataset.dense = String(state.settings.dense);
   document.documentElement.dataset.theme = state.settings.theme === "system"
     ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : state.settings.theme;
 }
@@ -116,8 +130,11 @@ function inFolder(track, id) {
 }
 function visibleTracks() {
   const query = state.filter.toLocaleLowerCase();
+  const favorites = state.favoritesOnly ? new Set(state.favorites) : null;
   const result = state.tracks.filter((track) =>
+    !state.hiddenTracks.has(track.id) &&
     inFolder(track, state.folder) &&
+    (!favorites || favorites.has(track.id)) &&
     [titleOf(track), track.artist, track.album, track.folder].some((value) =>
       (value || "").toLocaleLowerCase().includes(query)));
   const compare = (a, b) => String(a || "").localeCompare(String(b || ""), undefined, { numeric: true, sensitivity: "base" });
@@ -132,7 +149,7 @@ function visibleTracks() {
   return result;
 }
 function currentTrack() {
-  return state.tracks.find((item) => item.id === state.queue[state.current]);
+  return state.trackById.get(state.queue[state.current]);
 }
 function toast(message) {
   const box = $("#toast");
@@ -160,6 +177,7 @@ async function refresh() {
       data = await response.json();
     }
     state.tracks = data.tracks;
+    state.trackById = new Map(state.tracks.map((track) => [track.id, track]));
     state.snapshotAt = Date.now();
     sessionStorage.setItem("ytmp3_snapshot", JSON.stringify({
       tracks: state.tracks, at: state.snapshotAt
@@ -233,6 +251,25 @@ function renderLibrary() {
       </select>
       <button class="row-button" id="play-selection" type="button">Play</button>
       <button class="row-button" id="mix-selection" type="button">Mix</button>
+      <button class="row-button" id="favorites-filter" type="button" aria-pressed="false">☆ Favorites</button>
+      <div id="layout-mode" class="layout-switch" role="group" aria-label="Library layout">
+        <span class="layout-thumb" aria-hidden="true"></span>
+        <button type="button" data-layout="compact" aria-label="Compact view" title="Compact view">☷</button>
+        <button type="button" data-layout="list" aria-label="List view" title="List view">≡</button>
+        <button type="button" data-layout="tiles" aria-label="Tile view" title="Tile view">▦</button>
+      </div>
+      <button class="row-button" id="select-mode" type="button" aria-pressed="false">Select</button>
+    </div>
+    <div id="selection-bar" class="selection-bar" hidden><strong id="selected-count"></strong>
+      <button class="row-button" id="select-all" type="button">Select visible</button>
+      <button class="row-button" id="selected-play" type="button">Play</button>
+      <button class="row-button" id="selected-mix" type="button">Mix</button>
+      <button class="row-button" id="selected-queue" type="button">Queue</button>
+      <button class="row-button" id="selected-playlist" type="button">Playlist</button>
+      <button class="row-button" id="selected-favorite" type="button">Favorite</button>
+      <button class="row-button" id="selected-share" type="button" ${native ? "" : "hidden"}>Share</button>
+      <button class="row-button" id="selected-hide" type="button">Remove</button>
+      <button class="row-button" id="clear-selection" type="button">Done</button>
     </div>
     <details class="folder-browser"><summary>Browse folders</summary><div id="folder-list"></div></details>
     <div id="track-list" class="track-list"></div>
@@ -242,34 +279,97 @@ function renderLibrary() {
   $("#url-input").addEventListener("input", (event) => { state.urlDraft = event.target.value; });
   $("#filter").addEventListener("input", (event) => {
     state.filter = event.target.value;
+    state.visibleLimit = 100;
     renderTracks();
   });
   const folders = [...new Map(state.tracks.flatMap((track) => [
     [track.rootFolderId, track.rootFolder], [track.folderId, track.folder]
   ]).filter(([id]) => id)).entries()]
     .sort((a, b) => a[1].localeCompare(b[1]));
+  const folderCounts = new Map();
+  for (const track of state.tracks) {
+    if (track.rootFolderId)
+      folderCounts.set(track.rootFolderId, (folderCounts.get(track.rootFolderId) || 0) + 1);
+    let folderId = track.folderId;
+    while (folderId && folderId !== track.rootFolderId) {
+      folderCounts.set(folderId, (folderCounts.get(folderId) || 0) + 1);
+      const slash = folderId.lastIndexOf("/");
+      if (slash < track.rootFolderId.length) break;
+      folderId = folderId.slice(0, slash);
+    }
+  }
   const folderSelect = $("#folder-filter");
   folderSelect.add(new Option("All folders", ""));
   folders.forEach(([id, name]) => folderSelect.add(new Option(name, id)));
   if (folders.some(([id]) => id === state.folder)) folderSelect.value = state.folder;
   else state.folder = "";
-  folderSelect.addEventListener("change", (event) => { state.folder = event.target.value; renderTracks(); });
+  folderSelect.addEventListener("change", (event) => {
+    state.folder = event.target.value; state.visibleLimit = 100; renderTracks();
+  });
   $("#sort-tracks").value = state.sort;
   $("#sort-tracks").addEventListener("change", (event) => {
-    state.sort = event.target.value; state.settings.sort = state.sort; persistSettings(); renderTracks();
+    state.sort = event.target.value; state.settings.sort = state.sort;
+    state.visibleLimit = 100; persistSettings(); renderTracks();
   });
   $("#play-selection").addEventListener("click", () => playCollection(visibleTracks().map((track) => track.id)));
   $("#mix-selection").addEventListener("click", () => playCollection(visibleTracks().map((track) => track.id), true));
+  $("#favorites-filter").setAttribute("aria-pressed", String(state.favoritesOnly));
+  $("#favorites-filter").addEventListener("click", () => {
+    state.favoritesOnly = !state.favoritesOnly;
+    state.visibleLimit = 100;
+    $("#favorites-filter").setAttribute("aria-pressed", String(state.favoritesOnly));
+    renderTracks();
+  });
+  const layoutSwitch = $("#layout-mode");
+  layoutSwitch.dataset.layout = state.layout;
+  layoutSwitch.querySelectorAll("button").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.layout === state.layout));
+    button.addEventListener("click", () => {
+      state.layout = button.dataset.layout;
+      state.settings.libraryView = state.layout;
+      layoutSwitch.dataset.layout = state.layout;
+      layoutSwitch.querySelectorAll("button").forEach((item) =>
+        item.setAttribute("aria-pressed", String(item === button)));
+      persistSettings(); renderTracks();
+    });
+  });
+  $("#select-mode").addEventListener("click", () => {
+    state.selectionMode = !state.selectionMode;
+    if (!state.selectionMode) state.selectedTracks.clear();
+    renderTracks();
+  });
+  $("#select-all").addEventListener("click", () => {
+    visibleTracks().forEach((track) => state.selectedTracks.add(track.id)); renderTracks();
+  });
+  $("#selected-play").addEventListener("click", () => playCollection(selectedIds()));
+  $("#selected-mix").addEventListener("click", () => playCollection(selectedIds(), true));
+  $("#selected-queue").addEventListener("click", () => {
+    state.queue.push(...selectedIds()); persistLists(); syncNativeQueue(); render(); toast("Added to queue");
+  });
+  $("#selected-playlist").addEventListener("click", () => openPlaylistPicker(selectedIds()));
+  $("#selected-favorite").addEventListener("click", () => {
+    state.favorites = [...new Set([...state.favorites, ...selectedIds()])];
+    localStorage.setItem("ytmp3_favorites", JSON.stringify(state.favorites));
+    renderTracks(); toast("Added to favorites");
+  });
+  if (native) $("#selected-share").addEventListener("click", () => native.shareTracks(JSON.stringify(selectedIds())));
+  $("#selected-hide").addEventListener("click", () => confirmHideTracks(selectedIds()));
+  $("#clear-selection").addEventListener("click", () => {
+    state.selectedTracks.clear(); state.selectionMode = false; renderTracks();
+  });
   const folderList = $("#folder-list");
   folders.forEach(([id, name]) => {
     const row = document.createElement("div"); row.className = "folder-row";
-    const count = state.tracks.filter((track) => inFolder(track, id)).length;
+    const count = folderCounts.get(id) || 0;
     const label = document.createElement("button"); label.className = "folder-name";
     label.textContent = `${name} · ${count}`;
-    label.addEventListener("click", () => { state.folder = id; folderSelect.value = id; renderTracks(); });
+    label.addEventListener("click", () => {
+      state.folder = id; folderSelect.value = id; state.visibleLimit = 100; renderTracks();
+    });
     const mix = document.createElement("button"); mix.className = "row-button";
     mix.textContent = "Mix"; mix.setAttribute("aria-label", `Mix ${name}`);
-    mix.addEventListener("click", () => playCollection(state.tracks.filter((track) => inFolder(track, id)).map((track) => track.id), true));
+    mix.addEventListener("click", () => playCollection(state.tracks.filter((track) =>
+      !state.hiddenTracks.has(track.id) && inFolder(track, id)).map((track) => track.id), true));
     row.append(label, mix); folderList.append(row);
   });
   $("#url-form").addEventListener("submit", submitURL);
@@ -287,6 +387,15 @@ function renderTracks() {
   const list = $("#track-list");
   if (!list) return;
   const filtered = visibleTracks();
+  list.dataset.layout = state.layout;
+  $("#selection-bar").hidden = !state.selectionMode;
+  $("#select-mode").setAttribute("aria-pressed", String(state.selectionMode));
+  $("#selected-count").textContent = `${state.selectedTracks.size} selected`;
+  for (const id of ["selected-play", "selected-mix", "selected-queue", "selected-playlist",
+    "selected-favorite", "selected-share", "selected-hide"]) {
+    const button = $("#" + id);
+    if (button) button.disabled = !state.selectedTracks.size;
+  }
   $("#library-count").textContent = `${filtered.length} of ${state.tracks.length} tracks`;
   $("#play-selection").disabled = !filtered.length;
   $("#mix-selection").disabled = !filtered.length;
@@ -303,126 +412,278 @@ function renderTracks() {
     list.append(box);
     return;
   }
-  const ids = filtered.map((track) => track.id);
-  filtered.forEach((track) => list.append(trackRow(track, false, -1, ids)));
+  const showCount = Math.min(state.visibleLimit, filtered.length);
+  filtered.slice(0, showCount).forEach((track) => list.append(trackRow(track)));
+  // Render 100 more rows per action; a virtual list is the upgrade for huge libraries.
+  const showMore = () => {
+    if (state.visibleLimit >= filtered.length) return;
+    const button = document.createElement("button");
+    button.className = "row-button show-more";
+    button.type = "button";
+    button.textContent = `Show ${Math.min(100, filtered.length - state.visibleLimit)} more tracks`;
+    button.addEventListener("click", () => {
+      button.remove();
+      const start = state.visibleLimit;
+      state.visibleLimit = Math.min(filtered.length, start + 100);
+      filtered.slice(start, state.visibleLimit).forEach((track) => list.append(trackRow(track)));
+      showMore();
+    });
+    list.append(button);
+  };
+  showMore();
 }
 
-function trackRow(track, inQueue = false, index = -1, collection = null) {
+function selectedIds() {
+  return [...state.selectedTracks].filter((id) => state.trackById.has(id));
+}
+function toggleTrackSelection(id) {
+  if (state.selectedTracks.has(id)) state.selectedTracks.delete(id);
+  else state.selectedTracks.add(id);
+  renderTracks();
+}
+function confirmHideTracks(ids) {
+  state.pendingHideIds = ids.filter((id) => state.trackById.has(id));
+  if (!state.pendingHideIds.length) return;
+  $("#hide-text").textContent = state.pendingHideIds.length === 1
+    ? `Hide “${titleOf(state.trackById.get(state.pendingHideIds[0]))}” from Library?`
+    : `Hide ${state.pendingHideIds.length} tracks from Library?`;
+  $("#hide-dialog").showModal();
+}
+$("#cancel-hide").addEventListener("click", () => $("#hide-dialog").close());
+$("#confirm-hide").addEventListener("click", () => {
+  state.pendingHideIds.forEach((id) => {
+    state.hiddenTracks.add(id);
+    state.selectedTracks.delete(id);
+  });
+  localStorage.setItem("ytmp3_hidden_tracks", JSON.stringify([...state.hiddenTracks]));
+  $("#hide-dialog").close();
+  if (state.view === "library") renderTracks();
+  toast("Removed from Library. Restore in Settings.");
+});
+
+function toggleFavorite(id) {
+  state.favorites = state.favorites.includes(id)
+    ? state.favorites.filter((item) => item !== id) : [...state.favorites, id];
+  localStorage.setItem("ytmp3_favorites", JSON.stringify(state.favorites));
+  if (state.view === "library") renderTracks();
+  else if (state.view === "playlists") renderPlaylists();
+  else if (state.view === "queue") renderQueue();
+}
+
+function reorderQueue(from, to) {
+  if (to < 0 || to >= state.queue.length || from === to) return;
+  state.queue = Ytmp3Playlists.move(state.queue, from, to - from);
+  if (state.current === from) state.current = to;
+  else if (from < state.current && to >= state.current) state.current--;
+  else if (from > state.current && to <= state.current) state.current++;
+  persistLists(); syncNativeQueue(); renderQueue();
+}
+
+function reorderPlaylist(list, from, to) {
+  if (to < 0 || to >= list.tracks.length || from === to) return;
+  list.tracks = Ytmp3Playlists.move(list.tracks, from, to - from);
+  persistLists(); renderPlaylists();
+}
+
+function dragHandle(row, index, onDrop, label) {
+  const handle = document.createElement("button");
+  handle.type = "button";
+  handle.className = "drag-handle";
+  handle.textContent = "⠿";
+  handle.setAttribute("aria-label", `Drag to reorder ${label}; arrow keys also work`);
+  let pointer = null;
+  let target = index;
+  const clear = () => {
+    row.classList.remove("dragging");
+    document.querySelectorAll(".drop-target").forEach((item) => item.classList.remove("drop-target"));
+    pointer = null;
+  };
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    pointer = event.pointerId;
+    target = index;
+    handle.setPointerCapture(pointer);
+    row.classList.add("dragging");
+    event.preventDefault();
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (pointer !== event.pointerId) return;
+    const hovered = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-reorder-index]");
+    if (!hovered || hovered.parentElement !== row.parentElement) return;
+    target = Number(hovered.dataset.reorderIndex);
+    document.querySelectorAll(".drop-target").forEach((item) => item.classList.remove("drop-target"));
+    if (hovered !== row) hovered.classList.add("drop-target");
+  });
+  handle.addEventListener("pointerup", (event) => {
+    if (pointer !== event.pointerId) return;
+    clear();
+    onDrop(index, target);
+  });
+  handle.addEventListener("pointercancel", clear);
+  handle.addEventListener("keydown", (event) => {
+    if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    onDrop(index, index + (event.key === "ArrowUp" ? -1 : 1));
+  });
+  return handle;
+}
+
+function showTrackInfo(track) {
+  const dialog = $("#info-dialog");
+  $("#info-art").replaceChildren(trackArt(track));
+  $("#info-title").textContent = titleOf(track);
+  const details = $("#info-details");
+  details.replaceChildren();
+  for (const [label, value] of [
+    ["Artist", track.artist || "Unknown"], ["Album", track.album || "Unknown"],
+    ["Duration", track.duration ? formatTime(track.duration) : "Unknown"],
+    ["Folder", track.folder || "Library"], ["File", track.id.split("/").pop()],
+    ["Size", `${(track.size / 1048576).toFixed(1)} MB`]
+  ]) {
+    const term = document.createElement("dt"); term.textContent = label;
+    const description = document.createElement("dd"); description.textContent = value;
+    details.append(term, description);
+  }
+  dialog.showModal();
+}
+$("#close-info").addEventListener("click", () => $("#info-dialog").close());
+
+function trackMenu(track, context, index, list) {
+  const menu = document.createElement("details");
+  menu.className = "tile-menu";
+  const summary = document.createElement("summary");
+  summary.textContent = "⋮";
+  summary.setAttribute("aria-label", `Actions for ${titleOf(track)}`);
+  const options = document.createElement("div");
+  options.className = "tile-options";
+  menu.append(summary, options);
+  menu.addEventListener("toggle", () => {
+    if (!menu.open) return;
+    const rect = summary.getBoundingClientRect();
+    const below = $("#player").getBoundingClientRect().top - rect.bottom;
+    const above = rect.top - document.querySelector(".topbar").getBoundingClientRect().bottom;
+    const height = Math.min(options.scrollHeight, 440, innerHeight * .62);
+    const width = Math.min(220, innerWidth - 32);
+    menu.classList.toggle("align-left", rect.right - width < 8 && rect.left + width <= innerWidth - 8);
+    const openUp = below < height && above > below;
+    menu.classList.toggle("open-up", openUp);
+    options.style.maxHeight = `${Math.max(80, Math.min(height, openUp ? above : below) - 8)}px`;
+  });
+  const addAction = (label, run) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.addEventListener("click", () => { menu.open = false; run(); });
+    options.append(button);
+  };
+  addAction("Play", () => {
+    if (context === "library") state.queue = visibleTracks().map((item) => item.id);
+    if (context === "playlist") state.queue = list.tracks.filter((id) => state.trackById.has(id));
+    playTrack(track.id);
+  });
+  addAction("View info", () => showTrackInfo(track));
+  addAction("Add to playlist", () => openPlaylistPicker(track.id));
+  addAction(state.favorites.includes(track.id) ? "Remove favorite" : "Add to favorites",
+    () => toggleFavorite(track.id));
+  if (context === "library") {
+    addAction("Play next", () => {
+      state.queue.splice(Math.max(0, state.current + 1), 0, track.id);
+      persistLists(); syncNativeQueue(); toast("Added next");
+    });
+    addAction("Add to queue", () => {
+      state.queue.push(track.id); persistLists(); syncNativeQueue();
+      $("#queue-count").textContent = String(state.queue.length); toast("Added to queue");
+    });
+    addAction("Remove from Library", () => confirmHideTracks([track.id]));
+  }
+  addAction("Edit details and cover", () => openTrackEditor(track));
+  if (native) {
+    addAction("Share file", () => native.shareTrack(track.id));
+    addAction("Set as ringtone", () => native.setRingtone(track.id));
+  } else addAction("Share file", () => shareTrack(track));
+  if (context === "queue") addAction("Remove from queue", () => {
+    state.queue.splice(index, 1);
+    if (state.current >= index) state.current--;
+    persistLists(); syncNativeQueue(); renderQueue();
+  });
+  if (context === "playlist") addAction("Remove from playlist", () => {
+    list.tracks.splice(index, 1); persistLists(); renderPlaylists();
+  });
+  if (!track.external) addAction("Save file", () => {
+    if (native) {
+      const result = JSON.parse(native.exportTrack(track.id));
+      toast(result.error || "Saving to Music on this phone…");
+    } else location.href = `/export/${encodeURIComponent(track.id)}`;
+  });
+  return menu;
+}
+
+async function shareTrack(track) {
+  try {
+    const response = await fetch(`/media/${encodeURIComponent(track.id)}`);
+    if (!response.ok) throw new Error();
+    const file = new File([await response.blob()], `${titleOf(track)}.mp3`, { type: "audio/mpeg" });
+    if (!navigator.canShare?.({ files: [file] })) {
+      location.href = `/export/${encodeURIComponent(track.id)}`;
+      toast("File downloaded for sharing");
+      return;
+    }
+    await navigator.share({ files: [file], title: titleOf(track) });
+  } catch (error) {
+    if (error.name !== "AbortError") toast("Could not share this file.");
+  }
+}
+
+function trackRow(track, context = "library", index = -1, list = null) {
   const row = document.createElement("div");
   row.className = "track-row";
   if (currentTrack()?.id === track.id) row.classList.add("current");
-  const art = trackArt(track);
-  const meta = document.createElement("div");
-  meta.className = "track-meta";
-  const name = document.createElement("strong");
-  name.textContent = titleOf(track);
-  const sub = document.createElement("span");
-  sub.textContent = [track.artist, track.album, track.duration ? formatTime(track.duration) : null,
-    `${(track.size / 1048576).toFixed(1)} MB`].filter(Boolean).join(" · ");
-  meta.append(name, sub);
-  const actions = document.createElement("div");
-  actions.className = "track-actions";
-  const play = document.createElement("button");
-  play.className = "row-button";
-  play.type = "button";
-  play.textContent = "Play";
-  play.setAttribute("aria-label", `Play ${titleOf(track)}`);
-  play.addEventListener("click", () => {
-    if (collection) state.queue = [...collection];
-    playTrack(track.id);
-  });
-  actions.append(play);
-  if (inQueue) {
-    for (const [label, change] of [["↑", -1], ["↓", 1]]) {
-      const moveButton = document.createElement("button");
-      moveButton.className = "row-button";
-      moveButton.type = "button";
-      moveButton.textContent = label;
-      moveButton.disabled = index + change < 0 || index + change >= state.queue.length;
-      moveButton.setAttribute("aria-label", `${change < 0 ? "Move up" : "Move down"} ${titleOf(track)}`);
-      moveButton.addEventListener("click", () => {
-        state.queue = Ytmp3Playlists.move(state.queue, index, change);
-        if (state.current === index) state.current = index + change;
-        else if (state.current === index + change) state.current = index;
-        persistLists();
-        syncNativeQueue();
-        renderQueue();
-      });
-      actions.append(moveButton);
-    }
-    const remove = document.createElement("button");
-    remove.className = "row-button";
-    remove.type = "button";
-    remove.textContent = "Remove";
-    remove.setAttribute("aria-label", `Remove ${titleOf(track)} from queue`);
-    remove.addEventListener("click", () => {
-      state.queue.splice(index, 1);
-      if (state.current >= index) state.current--;
-      persistLists();
-      syncNativeQueue();
-      render();
-    });
-    actions.append(remove);
-  } else {
-    const more = document.createElement("details");
-    more.className = "track-more";
-    const summary = document.createElement("summary");
-    summary.textContent = "More";
-    summary.setAttribute("aria-label", `More actions for ${titleOf(track)}`);
-    const moreActions = document.createElement("div");
-    moreActions.className = "more-actions";
-    more.append(summary, moreActions);
-    const next = document.createElement("button");
-    next.className = "row-button";
-    next.type = "button";
-    next.textContent = "Next";
-    next.setAttribute("aria-label", `Play ${titleOf(track)} next`);
-    next.addEventListener("click", () => {
-      state.queue.splice(Math.max(0, state.current + 1), 0, track.id);
-      persistLists(); syncNativeQueue(); render(); toast("Added next");
-    });
-    moreActions.append(next);
-    const add = document.createElement("button");
-    add.className = "row-button";
-    add.type = "button";
-    add.textContent = "Queue";
-    add.setAttribute("aria-label", `Add ${titleOf(track)} to queue`);
-    add.addEventListener("click", () => {
-      state.queue.push(track.id);
-      persistLists(); syncNativeQueue();
-      $("#queue-count").textContent = String(state.queue.length);
-      toast("Added to queue");
-    });
-    moreActions.append(add);
-    const playlist = document.createElement("button");
-    playlist.className = "row-button";
-    playlist.type = "button";
-    playlist.textContent = "Playlist";
-    playlist.setAttribute("aria-label", `Add ${titleOf(track)} to playlist`);
-    playlist.addEventListener("click", () => openPlaylistPicker(track.id));
-    moreActions.append(playlist);
-    const edit = document.createElement("button");
-    edit.className = "row-button"; edit.type = "button"; edit.textContent = "Edit";
-    edit.setAttribute("aria-label", `Edit ${titleOf(track)}`);
-    edit.addEventListener("click", () => openTrackEditor(track));
-    moreActions.append(edit);
-    if (!track.external) {
-    const save = document.createElement("a");
-    save.className = "button-link";
-    save.href = native ? "#" : `/export/${encodeURIComponent(track.id)}`;
-    if (!native) save.download = track.id;
-    save.textContent = "Save file";
-    save.setAttribute("aria-label", `Save ${titleOf(track)} to this device`);
-    if (native) save.addEventListener("click", (event) => {
-      event.preventDefault();
-      const result = JSON.parse(native.exportTrack(track.id));
-      toast(result.error || "Saving to Music on this phone…");
-    });
-    moreActions.append(save);
-    }
-    actions.append(more);
+  if (context !== "library") {
+    row.classList.add("reorderable");
+    row.dataset.reorderIndex = String(index);
+    row.append(dragHandle(row, index, context === "queue"
+      ? reorderQueue : (from, to) => reorderPlaylist(list, from, to), titleOf(track)));
+  } else if (state.selectionMode) {
+    row.classList.add("selectable");
+    const check = document.createElement("input");
+    check.type = "checkbox"; check.className = "track-select";
+    check.checked = state.selectedTracks.has(track.id);
+    check.setAttribute("aria-label", `Select ${titleOf(track)}`);
+    check.addEventListener("change", () => toggleTrackSelection(track.id));
+    row.append(check);
+    row.classList.toggle("selected", check.checked);
   }
-  row.append(art, meta, actions);
+  row.append(trackArt(track));
+  const meta = document.createElement("div"); meta.className = "track-meta";
+  const title = document.createElement("strong"); title.textContent = titleOf(track);
+  const sub = document.createElement("span");
+  sub.textContent = [track.artist, track.album, track.duration ? formatTime(track.duration) : null]
+    .filter(Boolean).join(" · ") || track.folder || "MP3";
+  meta.append(title, sub);
+  row.append(meta, trackMenu(track, context, index, list));
+  if (context === "library") {
+    let timer, startX, startY, longPressed = false;
+    row.addEventListener("pointerdown", (event) => {
+      if (event.target.closest("button,summary,details,input,a")) return;
+      startX = event.clientX; startY = event.clientY; longPressed = false;
+      timer = setTimeout(() => {
+        state.selectionMode = true; longPressed = true;
+        state.selectedTracks.add(track.id);
+        renderTracks();
+      }, 550);
+    });
+    row.addEventListener("pointermove", (event) => {
+      if (Math.abs(event.clientX - startX) > 12 || Math.abs(event.clientY - startY) > 12)
+        clearTimeout(timer);
+    });
+    row.addEventListener("pointerup", () => clearTimeout(timer));
+    row.addEventListener("pointercancel", () => clearTimeout(timer));
+    row.addEventListener("click", (event) => {
+      if (longPressed) { longPressed = false; return; }
+      if (state.selectionMode && !event.target.closest("button,summary,details,input,a"))
+        toggleTrackSelection(track.id);
+    });
+  }
   return row;
 }
 
@@ -489,6 +750,7 @@ window.ytmp3CoverChanged = async (result) => {
   syncNativeQueue();
   toast("Cover saved");
 };
+window.ytmp3RingtoneResult = (result) => toast(result.error || "Ringtone set");
 
 function createPlaylist(name, ids = []) {
   const list = Ytmp3Playlists.create(state.playlists, name, ids);
@@ -508,9 +770,9 @@ function uniquePlaylistName(raw) {
   return label;
 }
 
-function openPlaylistPicker(id) {
+function openPlaylistPicker(ids) {
   const dialog = $("#playlist-dialog");
-  dialog.dataset.track = id;
+  state.pickerIds = Array.isArray(ids) ? ids : [ids];
   const choice = $("#playlist-choice");
   choice.replaceChildren();
   for (const list of state.playlists) choice.add(new Option(list.name, list.id));
@@ -525,10 +787,10 @@ $("#playlist-picker").addEventListener("submit", (event) => {
   const name = $("#playlist-new").value;
   const list = name.trim() ? createPlaylist(name) : state.playlists.find((item) => item.id === $("#playlist-choice").value);
   if (!list) { if (!name.trim()) toast("Create or choose a playlist."); return; }
-  Ytmp3Playlists.add(list, $("#playlist-dialog").dataset.track);
+  state.pickerIds.forEach((id) => Ytmp3Playlists.add(list, id));
   persistLists();
   $("#playlist-dialog").close();
-  toast(`Added to ${list.name}`);
+  toast(`${state.pickerIds.length} added to ${list.name}`);
   if (state.view === "playlists") renderPlaylists();
 });
 
@@ -592,37 +854,31 @@ function renderPlaylists() {
     }, { once: true });
     dialog.showModal();
   });
-  $("#playlist-play").disabled = !selected.tracks.some((id) => state.tracks.some((item) => item.id === id));
+  $("#playlist-play").disabled = !selected.tracks.some((id) => state.trackById.has(id));
   $("#playlist-play").addEventListener("click", () => {
-    state.queue = selected.tracks.filter((id) => state.tracks.some((item) => item.id === id));
+    state.queue = selected.tracks.filter((id) => state.trackById.has(id));
     state.current = 0; persistLists();
     if (state.queue.length) playTrack(state.queue[0]);
   });
   $("#playlist-queue").addEventListener("click", () => {
-    state.queue.push(...selected.tracks.filter((id) => state.tracks.some((item) => item.id === id)));
+    state.queue.push(...selected.tracks.filter((id) => state.trackById.has(id)));
     persistLists(); syncNativeQueue(); render(); toast("Playlist added to queue");
   });
   const songs = $("#playlist-tracks");
   if (!selected.tracks.length) songs.innerHTML = '<div class="empty"><strong>Nothing here yet</strong><p>Add tracks from Library.</p></div>';
   selected.tracks.forEach((id, index) => {
-    const track = state.tracks.find((item) => item.id === id);
-    const row = document.createElement("div"); row.className = "playlist-track";
-    const title = document.createElement("span"); title.textContent = track ? titleOf(track) : "Unavailable track";
-    if (track) row.append(trackArt(track));
-    row.append(title);
-    for (const [label, change] of [["↑", -1], ["↓", 1]]) {
-      const button = document.createElement("button"); button.type = "button"; button.className = "row-button";
-      button.textContent = label; button.disabled = index + change < 0 || index + change >= selected.tracks.length;
-      button.setAttribute("aria-label", `${change < 0 ? "Move up" : "Move down"} ${title.textContent}`);
-      button.addEventListener("click", () => {
-        selected.tracks = Ytmp3Playlists.move(selected.tracks, index, change);
-        persistLists(); renderPlaylists();
-      }); row.append(button);
+    const track = state.trackById.get(id);
+    if (track) songs.append(trackRow(track, "playlist", index, selected));
+    else {
+      const row = document.createElement("div"); row.className = "playlist-track";
+      const label = document.createElement("span"); label.textContent = "Unavailable track";
+      const remove = document.createElement("button"); remove.className = "row-button";
+      remove.type = "button"; remove.textContent = "Remove";
+      remove.addEventListener("click", () => {
+        selected.tracks.splice(index, 1); persistLists(); renderPlaylists();
+      });
+      row.append(label, remove); songs.append(row);
     }
-    const remove = document.createElement("button"); remove.type = "button"; remove.className = "row-button";
-    remove.textContent = "Remove"; remove.setAttribute("aria-label", `Remove ${title.textContent}`);
-    remove.addEventListener("click", () => { selected.tracks.splice(index, 1); persistLists(); renderPlaylists(); });
-    row.append(remove); songs.append(row);
   });
 }
 
@@ -651,8 +907,8 @@ function renderQueue() {
     return;
   }
   state.queue.forEach((id, index) => {
-    const track = state.tracks.find((item) => item.id === id);
-    if (track) list.append(trackRow(track, true, index));
+    const track = state.trackById.get(id);
+    if (track) list.append(trackRow(track, "queue", index));
     else {
       const missing = document.createElement("div"); missing.className = "playlist-track";
       missing.textContent = "Unavailable track ";
@@ -670,7 +926,6 @@ function renderSettings() {
     <section class="settings-card"><h2>Interface</h2>
       <label class="setting-row">Appearance <select id="theme-setting"><option value="system">Follow device</option>
         <option value="dark">Dark</option><option value="light">Light</option></select></label>
-      <label class="setting-row">Compact library rows <input id="dense-setting" type="checkbox"></label>
       <label class="setting-row">Default playback speed <select id="speed-setting">
         <option value="0.75">0.75×</option><option value="1">1×</option><option value="1.25">1.25×</option>
         <option value="1.5">1.5×</option><option value="2">2×</option></select></label>
@@ -678,15 +933,19 @@ function renderSettings() {
       <p>${native ? "Choose folders whose MP3 files should appear alongside downloads. Subfolders are included." : "Start the PC app with --include FOLDER for each additional media folder. Subfolders are included; --library PATH changes the download folder."}</p>
       <div class="section-actions"><button id="add-folder" class="row-button" type="button" ${native ? "" : "hidden"}>Add folder</button>
         <button id="rescan" class="row-button" type="button">Rescan library</button></div>
-      <div id="folder-list"></div></section></div>`;
+      <div id="folder-list"></div><h3>Hidden tracks</h3>
+      <p>Removing a track from Library hides it here without deleting the MP3.</p>
+      <div id="hidden-tracks"></div></section>
+    <section class="settings-card"><h2>App updates</h2>
+      <p id="update-status">Check for a newer ytmp3 app version.</p>
+      <p id="update-notes" hidden></p>
+      <div class="section-actions"><button id="check-update" class="row-button" type="button">Check now</button>
+        <button id="install-update" class="primary-button" type="button" hidden></button></div>
+    </section></div>`;
   $("#theme-setting").value = state.settings.theme;
-  $("#dense-setting").checked = !!state.settings.dense;
   $("#speed-setting").value = String(state.settings.speed);
   $("#theme-setting").addEventListener("change", (event) => {
     state.settings.theme = event.target.value; persistSettings();
-  });
-  $("#dense-setting").addEventListener("change", (event) => {
-    state.settings.dense = event.target.checked; persistSettings();
   });
   $("#speed-setting").addEventListener("change", (event) => {
     state.settings.speed = Number(event.target.value); persistSettings();
@@ -695,6 +954,9 @@ function renderSettings() {
     $("#speed").textContent = `${state.settings.speed}×`;
   });
   $("#rescan").addEventListener("click", () => refresh());
+  $("#check-update").addEventListener("click", () => checkAppUpdate(false));
+  $("#install-update").addEventListener("click", installAppUpdate);
+  renderUpdateCard();
   if (native) {
     $("#add-folder").addEventListener("click", () => native.pickFolder());
     const folders = JSON.parse(native.folders());
@@ -709,8 +971,90 @@ function renderSettings() {
       row.append(name, remove); $("#folder-list").append(row);
     }
   }
+  for (const id of state.hiddenTracks) {
+    const track = state.trackById.get(id);
+    const row = document.createElement("div"); row.className = "folder-row";
+    const name = document.createElement("span"); name.textContent = track ? titleOf(track) : id;
+    const restore = document.createElement("button"); restore.type = "button";
+    restore.className = "row-button"; restore.textContent = "Restore";
+    restore.addEventListener("click", () => {
+      state.hiddenTracks.delete(id);
+      localStorage.setItem("ytmp3_hidden_tracks", JSON.stringify([...state.hiddenTracks]));
+      renderSettings();
+    });
+    row.append(name, restore); $("#hidden-tracks").append(row);
+  }
 }
 window.ytmp3FoldersChanged = () => { refresh(); if (state.view === "settings") renderSettings(); };
+
+function renderUpdateCard() {
+  const status = $("#update-status");
+  if (!status) return;
+  status.textContent = state.updateJob?.state === "working" ? "Installing update…"
+    : state.updateJob?.state === "done" ? "Update installed. Restart the PC app."
+    : state.updateJob?.state === "error" ? "Could not install the update. Try again later."
+    : state.updateChecking ? "Checking for updates…"
+    : state.update?.error ? state.update.error
+    : state.update?.available ? `Version ${state.update.version} is available. You have ${state.update.current}.`
+    : state.update ? `Up to date (version ${state.update.current}).`
+    : "Check for a newer ytmp3 app version.";
+  const notes = $("#update-notes");
+  notes.hidden = !state.update?.available || !state.update.notes;
+  notes.textContent = state.update?.notes || "";
+  $("#check-update").disabled = state.updateChecking || state.updateJob?.state === "working";
+  const install = $("#install-update");
+  install.hidden = !state.update?.available || state.updateJob?.state === "done";
+  install.disabled = state.updateJob?.state === "working";
+  install.textContent = native ? "Open APK in Drive" : "Install update";
+}
+
+function receiveAppUpdate(result) {
+  state.updateChecking = false;
+  state.update = result;
+  if (!result.error) localStorage.setItem("ytmp3_update_checked_at", String(Date.now()));
+  renderUpdateCard();
+  if (result.error) {
+    if (!state.updateCheckSilent) toast(result.error);
+  } else if (result.available) toast(`ytmp3 ${result.version} is available in Settings`);
+  else if (!state.updateCheckSilent) toast("ytmp3 is up to date");
+}
+window.ytmp3UpdateResult = receiveAppUpdate;
+
+async function checkAppUpdate(silent = true) {
+  if (state.updateChecking) return;
+  state.updateChecking = true;
+  state.updateCheckSilent = silent;
+  renderUpdateCard();
+  if (native) { native.checkAppUpdate(); return; }
+  try {
+    const response = await fetch("/api/update", { cache: "no-store" });
+    receiveAppUpdate(response.ok ? await response.json() : { error: "Could not check for updates." });
+  } catch { receiveAppUpdate({ error: "Could not check for updates." }); }
+}
+
+async function installAppUpdate() {
+  if (!state.update?.available) return;
+  if (native) { native.openAppUpdate(); return; }
+  try {
+    const response = await fetch("/api/update/install", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: "{}" });
+    if (!response.ok) throw new Error();
+    state.updateJob = await response.json();
+    renderUpdateCard();
+    pollAppUpdate();
+  } catch { toast("Could not start the update."); }
+}
+
+async function pollAppUpdate() {
+  try {
+    const response = await fetch("/api/update/job", { cache: "no-store" });
+    if (!response.ok) throw new Error();
+    state.updateJob = await response.json();
+    renderUpdateCard();
+    if (state.updateJob.state === "working") setTimeout(pollAppUpdate, 2000);
+    else toast(state.updateJob.state === "done" ? "Update installed. Restart ytmp3." : "Update failed. Try again later.");
+  } catch { toast("Could not check update progress."); }
+}
 
 function renderAbout() {
   main.innerHTML = `<div class="content"><p class="eyebrow">Under the hood</p><h1>About ytmp3</h1>
@@ -809,7 +1153,7 @@ async function pollJob(id) {
       if ($("#url-input")) $("#url-input").value = "";
       await refresh();
       if (state.job.playlist && Array.isArray(state.job.tracks)) {
-        const ids = state.job.tracks.filter((track) => state.tracks.some((item) => item.id === track));
+        const ids = state.job.tracks.filter((track) => state.trackById.has(track));
         if (ids.length) createPlaylist(uniquePlaylistName(state.job.playlist), ids);
       }
       return;
@@ -839,7 +1183,7 @@ function playCollection(ids, mix = false) {
 }
 function playTrack(id) {
   if (!state.queue.includes(id)) state.queue = state.tracks.map((item) => item.id);
-  state.queue = state.queue.filter((item) => state.tracks.some((track) => track.id === item));
+  state.queue = state.queue.filter((item) => state.trackById.has(item));
   state.current = state.queue.indexOf(id);
   const track = currentTrack();
   if (!track) return;
@@ -862,7 +1206,7 @@ function playTrack(id) {
   render();
 }
 function queueItems() {
-  return state.queue.map((id) => state.tracks.find((item) => item.id === id))
+  return state.queue.map((id) => state.trackById.get(id))
     .filter(Boolean).map((track) => ({ id: track.id, title: titleOf(track),
       artist: track.artist || "", album: track.album || "", artwork: !!track.artwork }));
 }
@@ -1038,10 +1382,13 @@ if (received) {
   state.view = "library";
   toast("Shared link ready to save");
 }
+const lastUpdateCheck = Number(localStorage.getItem("ytmp3_update_checked_at") || 0);
+if (Date.now() - lastUpdateCheck > 86400000) setTimeout(() => checkAppUpdate(true), 2000);
 try {
   const snapshot = JSON.parse(sessionStorage.getItem("ytmp3_snapshot") || "null");
   if (snapshot?.tracks && Array.isArray(snapshot.tracks)) {
     state.tracks = snapshot.tracks;
+    state.trackById = new Map(state.tracks.map((track) => [track.id, track]));
     state.snapshotAt = snapshot.at;
   }
 } catch { /* Ignore an invalid old snapshot. */ }

@@ -13,6 +13,8 @@ import re
 import secrets
 import shutil
 import socket
+import subprocess
+import sys
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -26,9 +28,11 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 from tinytag import TinyTag
 
 from .config import DEFAULT_TEMPLATE
+from . import __version__
 from .download import download_mp3
 from .info import detail, source_items
 from .naming import fields_for, render
+from .updates import check as check_updates
 
 WEB = Path(__file__).with_name("web")
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
@@ -298,6 +302,36 @@ class AppServer(ThreadingHTTPServer):
         super().__init__(address, AppHandler)
         self.library = library
         self.key = secrets.token_urlsafe(24)
+        self.update_lock = threading.Lock()
+        self.update_version: str | None = None
+        self.update_job: dict = {"state": "idle"}
+
+    def install_update(self) -> dict:
+        with self.update_lock:
+            if not self.update_version:
+                raise ValueError("Check for an update first.")
+            if self.update_job["state"] == "working":
+                return dict(self.update_job)
+            version = self.update_version
+            self.update_job = {"state": "working", "version": version}
+        threading.Thread(target=self._install_update, args=(version,), daemon=True).start()
+        return dict(self.update_job)
+
+    def _install_update(self, version: str) -> None:
+        url = f"https://github.com/BlueRaddish/ytmp3/archive/refs/tags/v{version}.zip"
+        try:
+            result = subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade",
+                                     "--disable-pip-version-check", "--no-input", url],
+                                    capture_output=True, text=True, timeout=300,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if result.returncode:
+                logging.warning("ytmp3 app update failed: %s", result.stderr[-2000:])
+            state = "done" if result.returncode == 0 else "error"
+        except Exception:
+            logging.exception("ytmp3 app update failed")
+            state = "error"
+        with self.update_lock:
+            self.update_job = {"state": state, "version": version}
 
 
 class AppHandler(BaseHTTPRequestHandler):
@@ -376,6 +410,18 @@ class AppHandler(BaseHTTPRequestHandler):
             self._asset(parts.path[1:], "image/png")
         elif parts.path == "/api/tracks":
             self._json(200, {"tracks": self.server.library.tracks()})
+        elif parts.path == "/api/update":
+            try:
+                result = check_updates(__version__)
+                with self.server.update_lock:
+                    self.server.update_version = result["version"] if result["available"] else None
+                self._json(200, result)
+            except Exception:
+                logging.warning("Could not check for an app update", exc_info=True)
+                self._json(503, {"error": "Could not check for updates."})
+        elif parts.path == "/api/update/job":
+            with self.server.update_lock:
+                self._json(200, dict(self.server.update_job))
         elif parts.path.startswith("/cover/"):
             cover = self.server.library.cover(unquote(parts.path[len("/cover/"):]))
             self._send(200, *cover, headers={"Cache-Control": "no-store"}) if cover else self.send_error(HTTPStatus.NOT_FOUND)
@@ -394,7 +440,7 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._authorized():
             return
-        if self.path not in {"/api/download", "/api/tracks/edit"}:
+        if self.path not in {"/api/download", "/api/tracks/edit", "/api/update/install"}:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         origin = self.headers.get("Origin")
@@ -416,12 +462,19 @@ class AppHandler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(size))
             if self.path == "/api/tracks/edit":
                 self.server.library.edit_track(body)
+            elif self.path == "/api/update/install":
+                job = self.server.install_update()
             else:
                 job_id = self.server.library.submit(body["url"])
         except (ValueError, KeyError, TypeError) as exc:
             self._json(400, {"error": str(exc)})
             return
-        self._json(200, {}) if self.path == "/api/tracks/edit" else self._json(202, {"job": job_id})
+        if self.path == "/api/tracks/edit":
+            self._json(200, {})
+        elif self.path == "/api/update/install":
+            self._json(202, job)
+        else:
+            self._json(202, {"job": job_id})
 
     def _media(self, name: str, download: bool) -> None:
         path = self.server.library.file(name)

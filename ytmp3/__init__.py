@@ -1,3 +1,3 @@
 """Save audio from a supplied URL and play a personal MP3 library."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

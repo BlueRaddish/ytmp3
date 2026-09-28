@@ -6,12 +6,13 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
 
-/** Supplies one cover on demand, so long play queues do not carry image bytes. */
-public final class CoverProvider extends ContentProvider {
+/** Reads private MP3s for share targets and artwork for the media session. */
+public final class LibraryProvider extends ContentProvider {
     private AndroidLibrary library;
 
     @Override public boolean onCreate() {
@@ -19,27 +20,41 @@ public final class CoverProvider extends ContentProvider {
         return true;
     }
 
-    private byte[] image(Uri uri) throws FileNotFoundException {
-        if (!"io.github.blueraddish.ytmp3.covers".equals(uri.getAuthority()))
-            throw new FileNotFoundException();
-        byte[] data = library.cover(uri.getLastPathSegment());
-        if (data == null) throw new FileNotFoundException();
-        return data;
+    private String kind(Uri uri) throws FileNotFoundException {
+        if (!"io.github.blueraddish.ytmp3.files".equals(uri.getAuthority())
+                || uri.getPathSegments().size() != 2) throw new FileNotFoundException();
+        return uri.getPathSegments().get(0);
     }
 
     @Override public String getType(Uri uri) {
-        try { return AndroidLibrary.coverType(image(uri)); }
-        catch (FileNotFoundException error) { return null; }
+        try {
+            String kind = kind(uri);
+            if ("shares".equals(kind))
+                return library.file(uri.getLastPathSegment()) == null ? null : "audio/mpeg";
+            if ("covers".equals(kind)) {
+                byte[] image = library.cover(uri.getLastPathSegment());
+                return image == null ? null : AndroidLibrary.coverType(image);
+            }
+        } catch (FileNotFoundException ignored) { }
+        return null;
     }
 
     @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
         if (!"r".equals(mode)) throw new FileNotFoundException();
-        byte[] data = image(uri);
+        String kind = kind(uri);
+        if ("shares".equals(kind)) {
+            File file = library.file(uri.getLastPathSegment());
+            if (file == null) throw new FileNotFoundException();
+            return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
+        }
+        if (!"covers".equals(kind)) throw new FileNotFoundException();
+        byte[] image = library.cover(uri.getLastPathSegment());
+        if (image == null) throw new FileNotFoundException();
         try {
             ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
             new Thread(() -> {
                 try (OutputStream output = new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1])) {
-                    output.write(data);
+                    output.write(image);
                 } catch (IOException ignored) { }
             }, "ytmp3-cover").start();
             return pipe[0];

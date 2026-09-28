@@ -93,6 +93,17 @@
         <button class="primary-button" type="submit">Save details</button></div>
     </form>
   </dialog>
+  <dialog id="info-dialog" aria-labelledby="info-title">
+    <div id="info-art"></div><h2 id="info-title"></h2><dl id="info-details"></dl>
+    <div class="dialog-actions"><button id="close-info" class="row-button" type="button">Close</button></div>
+  </dialog>
+  <dialog id="hide-dialog" aria-labelledby="hide-title">
+    <h2 id="hide-title">Remove from Library?</h2>
+    <p id="hide-text"></p>
+    <p class="form-note">The MP3 files stay on this device. Restore hidden tracks in Settings.</p>
+    <div class="dialog-actions"><button id="cancel-hide" class="row-button" type="button">Cancel</button>
+      <button id="confirm-hide" class="primary-button" type="button">Remove</button></div>
+  </dialog>
   <dialog id="confirm-dialog" aria-labelledby="confirm-title">
     <form method="dialog"><h2 id="confirm-title">Delete playlist?</h2><p id="confirm-text"></p>
       <div class="dialog-actions"><button class="row-button" value="cancel">Cancel</button>

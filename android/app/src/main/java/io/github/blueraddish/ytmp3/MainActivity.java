@@ -3,14 +3,19 @@ package io.github.blueraddish.ytmp3;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ComponentName;
+import android.content.ClipData;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
+import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -18,6 +23,7 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 
 import org.json.JSONObject;
 import org.json.JSONArray;
@@ -36,6 +42,8 @@ import java.io.FileInputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -48,9 +56,11 @@ public final class MainActivity extends Activity {
     private static final String ORIGIN = "https://appassets.androidplatform.net";
     private static final Pattern SHARED_URL = Pattern.compile("https?://\\S+", Pattern.CASE_INSENSITIVE);
     private static final Pattern RANGE = Pattern.compile("bytes=(\\d*)-(\\d*)");
+    private static final String UPDATE_FEED = "https://raw.githubusercontent.com/BlueRaddish/ytmp3/main/updates.json";
     private static final int PICK_FOLDER = 19;
     private static final int PICK_PLAYLIST = 20;
     private static final int PICK_COVER = 21;
+    private static final int PICK_RINGTONE_PERMISSION = 22;
     private AndroidLibrary library;
     private WebView web;
     private MediaController controller;
@@ -59,6 +69,8 @@ public final class MainActivity extends Activity {
     private volatile String playbackSnapshot = "{}";
     private final List<Runnable> pendingPlayback = new ArrayList<>();
     private String pendingCoverId;
+    private String pendingRingtoneId;
+    private volatile String latestApkUrl;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override public void onCreate(Bundle state) {
@@ -121,7 +133,16 @@ public final class MainActivity extends Activity {
                 catch (IOException error) { return response(500, "text/plain", "Could not load app asset"); }
             }
         });
-        setContentView(web);
+        FrameLayout root = new FrameLayout(this);
+        root.addView(web, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        if (Build.VERSION.SDK_INT >= 30) root.setOnApplyWindowInsetsListener((view, insets) -> {
+            int types = WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout();
+            Insets bars = insets.getInsets(types);
+            root.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            return new WindowInsets.Builder(insets).setInsets(types, Insets.NONE).build();
+        });
+        setContentView(root);
         String shared = sharedUrl(getIntent());
         web.loadUrl(ORIGIN + "/" + (shared == null ? "" : "?url=" + Uri.encode(shared)));
     }
@@ -184,7 +205,7 @@ public final class MainActivity extends Activity {
                 MediaMetadata.Builder metadata = new MediaMetadata.Builder().setTitle(entry.getString("title"))
                     .setArtist(entry.optString("artist")).setAlbumTitle(entry.optString("album"));
                 if (entry.optBoolean("artwork")) metadata.setArtworkUri(
-                    Uri.parse("content://io.github.blueraddish.ytmp3.covers/" + Uri.encode(id)));
+                    Uri.parse("content://io.github.blueraddish.ytmp3.files/covers/" + Uri.encode(id)));
                 items.add(new MediaItem.Builder().setMediaId(id).setUri(uri)
                     .setMediaMetadata(metadata.build()).build());
             }
@@ -217,6 +238,63 @@ public final class MainActivity extends Activity {
             return library.editTrack(id, title, artist, album);
         }
         @JavascriptInterface public String removeCover(String id) { return library.removeCover(id); }
+        @JavascriptInterface public void checkAppUpdate() {
+            new Thread(MainActivity.this::checkAppUpdate, "ytmp3-update-check").start();
+        }
+        @JavascriptInterface public void openAppUpdate() {
+            handler.post(() -> {
+                String url = latestApkUrl;
+                if (url == null) return;
+                try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
+                catch (Exception error) {
+                    android.widget.Toast.makeText(MainActivity.this, "Could not open the APK link.",
+                        android.widget.Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+        @JavascriptInterface public void shareTrack(String id) {
+            shareTracks(new JSONArray().put(id).toString());
+        }
+        @JavascriptInterface public void shareTracks(String json) {
+            handler.post(() -> {
+                try {
+                    JSONArray ids = new JSONArray(json);
+                    if (ids.length() < 1 || ids.length() > 100) return;
+                    ArrayList<Uri> uris = new ArrayList<>();
+                    for (int i = 0; i < ids.length(); i++) {
+                        String id = ids.getString(i);
+                        Uri uri = library.mediaUri(id);
+                        if (uri == null) continue;
+                        uris.add("file".equals(uri.getScheme())
+                            ? Uri.parse("content://io.github.blueraddish.ytmp3.files/shares/" + Uri.encode(id)) : uri);
+                    }
+                    if (uris.isEmpty()) return;
+                    Intent share = new Intent(uris.size() == 1 ? Intent.ACTION_SEND : Intent.ACTION_SEND_MULTIPLE);
+                    share.setType("audio/mpeg");
+                    if (uris.size() == 1) share.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+                    else share.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                    ClipData clip = ClipData.newRawUri("MP3", uris.get(0));
+                    for (int i = 1; i < uris.size(); i++) clip.addItem(new ClipData.Item(uris.get(i)));
+                    share.setClipData(clip);
+                    share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(Intent.createChooser(share, "Share audio"));
+                } catch (Exception error) {
+                    android.widget.Toast.makeText(MainActivity.this, "Could not share those tracks.",
+                        android.widget.Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+        @JavascriptInterface public void setRingtone(String id) {
+            handler.post(() -> {
+                if (library.mediaUri(id) == null) return;
+                if (Settings.System.canWrite(MainActivity.this)) startRingtone(id);
+                else {
+                    pendingRingtoneId = id;
+                    startActivityForResult(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                        Uri.parse("package:" + getPackageName())), PICK_RINGTONE_PERMISSION);
+                }
+            });
+        }
         @JavascriptInterface public void pickCover(String id) {
             handler.post(() -> {
                 if (library.mediaUri(id) == null) return;
@@ -305,6 +383,13 @@ public final class MainActivity extends Activity {
             }
             return;
         }
+        if (request == PICK_RINGTONE_PERMISSION) {
+            String id = pendingRingtoneId;
+            pendingRingtoneId = null;
+            if (id != null && Settings.System.canWrite(this)) startRingtone(id);
+            else web.evaluateJavascript("window.ytmp3RingtoneResult({\"error\":\"Ringtone permission was not granted.\"})", null);
+            return;
+        }
         if (request != PICK_FOLDER || result != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         try {
@@ -312,6 +397,68 @@ public final class MainActivity extends Activity {
             library.addFolder(uri);
             web.evaluateJavascript("window.ytmp3FoldersChanged()", null);
         } catch (SecurityException ignored) { }
+    }
+
+    private void startRingtone(String id) {
+        new Thread(() -> {
+            String result = library.setRingtone(id);
+            handler.post(() -> web.evaluateJavascript("window.ytmp3RingtoneResult(" + result + ")", null));
+        }, "ytmp3-ringtone").start();
+    }
+
+    private static boolean newerVersion(String candidate, String current) {
+        if (!candidate.matches("\\d+\\.\\d+\\.\\d+") || !current.matches("\\d+\\.\\d+\\.\\d+"))
+            throw new IllegalArgumentException("Invalid app version.");
+        String[] left = candidate.split("\\.");
+        String[] right = current.split("\\.");
+        for (int i = 0; i < 3; i++) {
+            int difference = Integer.compare(Integer.parseInt(left[i]), Integer.parseInt(right[i]));
+            if (difference != 0) return difference > 0;
+        }
+        return false;
+    }
+
+    private void checkAppUpdate() {
+        JSONObject result;
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(UPDATE_FEED).openConnection();
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(5000);
+            connection.setRequestProperty("User-Agent", "ytmp3-update-check");
+            if (connection.getResponseCode() != 200) throw new IOException("Update feed unavailable.");
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            try (InputStream input = connection.getInputStream()) {
+                byte[] buffer = new byte[1024];
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, count);
+                    if (output.size() > 8192) throw new IOException("Update feed is too large.");
+                }
+            }
+            JSONObject feed = new JSONObject(output.toString("UTF-8"));
+            String version = feed.getString("version");
+            String url = feed.getString("android_apk_url");
+            Uri parsed = Uri.parse(url);
+            if (!"https".equals(parsed.getScheme()) || !"drive.google.com".equals(parsed.getHost())
+                    || parsed.getUserInfo() != null) throw new IOException("Invalid APK link.");
+            String notes = feed.optString("notes", "");
+            if (notes.length() > 400) throw new IOException("Invalid update notes.");
+            String current = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            boolean available = newerVersion(version, current);
+            latestApkUrl = available ? url : null;
+            result = new JSONObject().put("current", current).put("version", version)
+                .put("available", available).put("notes", notes);
+        } catch (Exception error) {
+            android.util.Log.w("ytmp3", "Could not check app update", error);
+            result = new JSONObject();
+            try { result.put("error", "Could not check for updates."); }
+            catch (Exception ignored) { }
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+        String json = result.toString();
+        handler.post(() -> web.evaluateJavascript("window.ytmp3UpdateResult(" + json + ")", null));
     }
 
     private void readPlaylist(Uri uri) {

@@ -6,9 +6,11 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.media.MediaMetadataRetriever;
+import android.media.RingtoneManager;
 import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -262,6 +264,46 @@ final class AndroidLibrary {
         if (mediaUri(id) == null) return failure("Track not found.");
         File cover = coverFile(id);
         return !cover.exists() || cover.delete() ? "{}" : failure("Could not remove cover image.");
+    }
+
+    String setRingtone(String id) {
+        Uri source = mediaUri(id);
+        if (source == null) return failure("Track not found.");
+        if (!Settings.System.canWrite(context)) return failure("Allow ytmp3 to change system settings first.");
+        Uri saved = null;
+        try {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Audio.Media.DISPLAY_NAME, "ytmp3-ringtone-" + System.currentTimeMillis() + ".mp3");
+            values.put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg");
+            values.put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_RINGTONES + "/ytmp3");
+            values.put(MediaStore.Audio.Media.IS_RINGTONE, 1);
+            values.put(MediaStore.Audio.Media.IS_PENDING, 1);
+            // Each selection keeps one copy in Ringtones/ytmp3. Reusing old
+            // copies requires tracking MediaStore ownership and is the upgrade path.
+            saved = context.getContentResolver().insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values);
+            if (saved == null) throw new IOException("Could not create ringtone.");
+            File own = file(id);
+            try (InputStream input = own == null ? context.getContentResolver().openInputStream(source)
+                    : Files.newInputStream(own.toPath());
+                 OutputStream output = context.getContentResolver().openOutputStream(saved)) {
+                if (input == null || output == null) throw new IOException("Could not copy ringtone.");
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            }
+            values.clear();
+            values.put(MediaStore.Audio.Media.IS_PENDING, 0);
+            context.getContentResolver().update(saved, values, null, null);
+            RingtoneManager.setActualDefaultRingtoneUri(context, RingtoneManager.TYPE_RINGTONE, saved);
+            return "{}";
+        } catch (Exception error) {
+            Log.w("ytmp3", "Could not set ringtone", error);
+            if (saved != null) {
+                try { context.getContentResolver().delete(saved, null, null); }
+                catch (Exception ignored) { }
+            }
+            return failure("Could not set this track as the ringtone.");
+        }
     }
 
     private java.util.List<String> folderUris() {

@@ -1,5 +1,5 @@
 {
-  "version": "0.4.0",
-  "android_apk_url": "https://drive.google.com/open?id=16-gx6mpHorr6Lt1x5bkuesIys4IZQ1i0",
-  "notes": "Library sorting, folder mix play, track editing, and embedded covers."
+  "version": "0.5.0",
+  "android_apk_url": "https://drive.google.com/open?id=1jHd_-wNap4C1jkPs7hyLkr_U0GsP7ZPr",
+  "notes": "Compact, list, and tile views; track menus, bulk selection, drag ordering, Android sharing and ringtones, and app update checks."
 }

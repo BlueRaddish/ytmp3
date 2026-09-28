@@ -24,6 +24,28 @@ globalThis.Ytmp3Playlists = (() => {
     reordered.splice(target, 0, item);
     return reordered;
   }
-  return { sanitize, create, add, move };
+  function importM3U(text, library) {
+    const byName = new Map();
+    for (const track of library) {
+      let path = track.id;
+      try { path = decodeURIComponent(path); } catch { /* Keep literal filenames containing %. */ }
+      const name = path.replaceAll("\\", "/").split("/").pop().toLocaleLowerCase();
+      byName.set(name, byName.has(name) ? null : track.id);
+    }
+    const found = [];
+    let missing = 0;
+    for (const raw of text.replace(/^\uFEFF/, "").split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) continue;
+      let path = line;
+      try { path = decodeURIComponent(path); } catch { /* Keep literal paths containing %. */ }
+      const name = path.replaceAll("\\", "/").split("/").pop().toLocaleLowerCase();
+      const id = byName.get(name);
+      if (id) found.push(id);
+      else missing++;
+    }
+    return { tracks: found, missing };
+  }
+  return { sanitize, create, add, move, importM3U };
 })();
 if (typeof module !== "undefined") module.exports = globalThis.Ytmp3Playlists;

@@ -48,6 +48,12 @@ final class AndroidLibrary {
         volatile String state = "queued";
         volatile String error;
         volatile String track;
+        volatile int total;
+        volatile int completed;
+        volatile int saved;
+        volatile int failed;
+        volatile String playlist;
+        final JSONArray tracks = new JSONArray();
 
         Job(String id) { this.id = id; }
 
@@ -55,6 +61,10 @@ final class AndroidLibrary {
             JSONObject out = new JSONObject().put("id", id).put("state", state);
             if (error != null) out.put("error", error);
             if (track != null) out.put("track", track);
+            if (total > 0) out.put("total", total).put("completed", completed)
+                .put("saved", saved).put("failed", failed);
+            if (playlist != null) out.put("playlist", playlist);
+            if (state.equals("done")) out.put("tracks", tracks);
             return out;
         }
     }
@@ -249,10 +259,63 @@ final class AndroidLibrary {
 
     private void download(Job job, String url) {
         job.state = "working";
-        File temp = new File(context.getCacheDir(), "ytmp3-" + job.id);
         try {
+            Uri source = Uri.parse(url);
+            if ("open.spotify.com".equalsIgnoreCase(source.getHost())
+                    && source.getPath() != null && source.getPath().startsWith("/playlist/")) {
+                throw new IllegalArgumentException("Spotify playlist links are not supported. Import an M3U of local MP3s instead.");
+            }
             initialize();
             refreshExtractor();
+            YoutubeDLRequest probe = new YoutubeDLRequest(url);
+            probe.addOption("--flat-playlist");
+            probe.addOption("--dump-single-json");
+            probe.addOption("--skip-download");
+            probe.addOption("--playlist-end", "101");
+            probe.addOption("--yes-playlist");
+            probe.addOption("--no-warnings");
+            JSONObject info = new JSONObject(YoutubeDL.getInstance().execute(probe).getOut());
+            JSONArray entries = info.optJSONArray("entries");
+            if (entries != null && entries.length() > 100)
+                throw new IllegalArgumentException("This playlist has more than 100 items. Use a shorter playlist.");
+            job.total = entries == null ? 1 : entries.length();
+            if (job.total == 0) throw new IllegalArgumentException("This playlist has no available items.");
+            if (entries != null) job.playlist = info.optString("title", "Playlist");
+            for (int index = 0; index < job.total; index++) {
+                try {
+                    JSONObject entry = entries == null ? info : entries.optJSONObject(index);
+                    if (entry == null) throw new IOException("Unavailable playlist item.");
+                    String itemUrl = entries == null ? url : entry.optString("webpage_url", "");
+                    if (itemUrl.isEmpty()) itemUrl = entry.optString("url", "");
+                    if (!itemUrl.startsWith("http://") && !itemUrl.startsWith("https://")
+                            && "Youtube".equals(entry.optString("ie_key")) && !entry.optString("id").isEmpty()) {
+                        itemUrl = "https://www.youtube.com/watch?v=" + entry.optString("id");
+                    }
+                    job.track = downloadOne(job, validUrl(itemUrl));
+                    job.tracks.put(job.track);
+                    job.saved++;
+                } catch (Exception error) {
+                    Log.w("ytmp3", "Playlist item failed", error);
+                    job.failed++;
+                }
+                job.completed++;
+            }
+            if (job.saved == 0) throw new IOException("No items could be saved.");
+            job.state = "done";
+        } catch (IllegalArgumentException error) {
+            Log.w("ytmp3", "Download rejected", error);
+            job.error = error.getMessage();
+            job.state = "error";
+        } catch (Exception error) {
+            Log.e("ytmp3", "Download failed", error);
+            job.error = "Could not save this link. Check the URL and connection, then try again.";
+            job.state = "error";
+        }
+    }
+
+    private String downloadOne(Job job, String url) throws Exception {
+        File temp = new File(context.getCacheDir(), "ytmp3-" + job.id);
+        try {
             if (!temp.mkdir()) throw new IOException("Could not prepare a download folder.");
             YoutubeDLRequest request = new YoutubeDLRequest(url);
             request.addOption("--no-playlist");
@@ -278,12 +341,7 @@ final class AndroidLibrary {
                 Files.copy(produced[0].toPath(), staged.toPath());
                 Files.move(staged.toPath(), target.toPath());
             } finally { if (staged.exists()) staged.delete(); }
-            job.track = target.getName();
-            job.state = "done";
-        } catch (Exception error) {
-            Log.e("ytmp3", "Download failed", error);
-            job.error = "Could not save this link. Check the URL and connection, then try again.";
-            job.state = "error";
+            return target.getName();
         } finally { deleteTemp(temp); }
     }
 

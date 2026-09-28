@@ -4,11 +4,13 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.OpenableColumns;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -28,6 +30,7 @@ import androidx.media3.session.SessionToken;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FilterInputStream;
@@ -46,6 +49,7 @@ public final class MainActivity extends Activity {
     private static final Pattern SHARED_URL = Pattern.compile("https?://\\S+", Pattern.CASE_INSENSITIVE);
     private static final Pattern RANGE = Pattern.compile("bytes=(\\d*)-(\\d*)");
     private static final int PICK_FOLDER = 19;
+    private static final int PICK_PLAYLIST = 20;
     private AndroidLibrary library;
     private WebView web;
     private MediaController controller;
@@ -200,6 +204,11 @@ public final class MainActivity extends Activity {
             handler.post(() -> startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION), PICK_FOLDER));
         }
+        @JavascriptInterface public void pickPlaylist() {
+            handler.post(() -> startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), PICK_PLAYLIST));
+        }
         @JavascriptInterface public String playback() { return playbackSnapshot; }
         @JavascriptInterface public void playQueue(String json, int index) {
             withPlayer(() -> {
@@ -256,6 +265,10 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == PICK_PLAYLIST) {
+            if (result == RESULT_OK && data != null && data.getData() != null) readPlaylist(data.getData());
+            return;
+        }
         if (request != PICK_FOLDER || result != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         try {
@@ -263,6 +276,35 @@ public final class MainActivity extends Activity {
             library.addFolder(uri);
             web.evaluateJavascript("window.ytmp3FoldersChanged()", null);
         } catch (SecurityException ignored) { }
+    }
+
+    private void readPlaylist(Uri uri) {
+        new Thread(() -> {
+            try {
+                String name = "playlist.m3u";
+                try (Cursor cursor = getContentResolver().query(uri,
+                        new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null)) {
+                    if (cursor != null && cursor.moveToFirst()) name = cursor.getString(0);
+                }
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                try (InputStream input = getContentResolver().openInputStream(uri)) {
+                    if (input == null) throw new IOException("Could not open playlist.");
+                    byte[] buffer = new byte[8192];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) {
+                        out.write(buffer, 0, count);
+                        if (out.size() > 1024 * 1024) throw new IOException("Playlist is too large.");
+                    }
+                }
+                String script = "window.ytmp3PlaylistFile(" + JSONObject.quote(name) + ","
+                    + JSONObject.quote(out.toString("UTF-8")) + ")";
+                handler.post(() -> web.evaluateJavascript(script, null));
+            } catch (Exception error) {
+                android.util.Log.w("ytmp3", "Playlist import failed", error);
+                handler.post(() -> android.widget.Toast.makeText(this,
+                    "Could not read that playlist file.", android.widget.Toast.LENGTH_LONG).show());
+            }
+        }).start();
     }
 
     private static WebResourceResponse response(int status, String type, String message) {

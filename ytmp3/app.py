@@ -22,7 +22,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from .config import DEFAULT_TEMPLATE
 from .download import download_mp3
-from .info import detail
+from .info import detail, source_items
 from .naming import fields_for, render
 
 WEB = Path(__file__).with_name("web")
@@ -144,19 +144,38 @@ class Library:
     def _download(self, job_id: str, url: str) -> None:
         self._set(job_id, state="working")
         try:
-            info = detail(url)
-            if not info or info.get("_type") in {"playlist", "multi_video"}:
-                raise ValueError("This URL did not resolve to one downloadable item.")
-            filename = render(DEFAULT_TEMPLATE, fields_for(info))
-            with tempfile.TemporaryDirectory(prefix=".ytmp3-", dir=self.path) as temp:
-                produced = download_mp3(url, Path(temp), filename)
-                target = self.path / filename
-                number = 2
-                while target.exists():
-                    target = self.path / f"{Path(filename).stem} ({number}).mp3"
-                    number += 1
-                shutil.move(str(produced), str(target))
-            self._set(job_id, state="done", track=target.name)
+            items, failed, playlist = source_items(url)
+            total = len(items) + failed
+            saved = 0
+            tracks = []
+            self._set(job_id, total=total, completed=0, failed=failed, playlist=playlist)
+            for info in items:
+                try:
+                    item_url = validate_source(info["source_url"])
+                    metadata = info if info.get("title") else detail(item_url) or info
+                    filename = render(DEFAULT_TEMPLATE, fields_for(metadata))
+                    with tempfile.TemporaryDirectory(prefix=".ytmp3-", dir=self.path) as temp:
+                        produced = download_mp3(item_url, Path(temp), filename)
+                        target = self.path / filename
+                        number = 2
+                        while target.exists():
+                            target = self.path / f"{Path(filename).stem} ({number}).mp3"
+                            number += 1
+                        shutil.move(str(produced), str(target))
+                    saved += 1
+                    tracks.append(target.name)
+                    self._set(job_id, track=target.name)
+                except Exception:
+                    logging.exception("ytmp3 playlist item failed")
+                    failed += 1
+                self._set(job_id, completed=saved + failed, saved=saved, failed=failed)
+            if saved:
+                self._set(job_id, state="done", tracks=tracks)
+            else:
+                raise ValueError("No items could be saved.")
+        except ValueError as exc:
+            logging.warning("ytmp3 download rejected: %s", exc)
+            self._set(job_id, state="error", error=str(exc))
         except Exception:
             logging.exception("ytmp3 download failed")
             self._set(job_id, state="error",

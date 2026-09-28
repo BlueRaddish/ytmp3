@@ -176,11 +176,11 @@ function renderLibrary() {
     <h1>Your audio, in one place.</h1>
     <p class="intro">Save from a link you supply, then play from your personal library on ${native ? "this phone" : "this PC or a connected device"}.</p>
     <section class="download-panel" aria-labelledby="add-heading">
-      <form id="url-form"><label id="add-heading" for="url-input">Add from URL</label>
+      <form id="url-form"><label id="add-heading" for="url-input">Add from URL or playlist</label>
         <div class="url-form"><input id="url-input" class="url-input" type="url" required
           inputmode="url" autocomplete="url" placeholder="https://example.org/recording"
           aria-describedby="url-note"><button class="primary-button" type="submit">Save as MP3</button></div>
-        <p class="form-note" id="url-note">Downloads use yt-dlp. Save only content you have permission to copy.</p>
+        <p class="form-note" id="url-note">Downloads use yt-dlp. Playlists are limited to 100 items. Save only content you have permission to copy.</p>
       </form><div id="job-container"></div>
     </section>
     <div class="section-head"><div><h2>Library</h2><p id="library-count"></p></div>
@@ -340,6 +340,15 @@ function createPlaylist(name, ids = []) {
   return list;
 }
 
+function uniquePlaylistName(raw) {
+  const base = (raw.trim() || "Imported playlist").slice(0, 80);
+  let label = base;
+  for (let number = 2; state.playlists.some((list) => list.name.toLocaleLowerCase() === label.toLocaleLowerCase()); number++) {
+    label = `${base.slice(0, 75)} (${number})`;
+  }
+  return label;
+}
+
 function openPlaylistPicker(id) {
   const dialog = $("#playlist-dialog");
   dialog.dataset.track = id;
@@ -366,14 +375,21 @@ $("#playlist-picker").addEventListener("submit", (event) => {
 
 function renderPlaylists() {
   main.innerHTML = `<div class="content"><p class="eyebrow">Your collections</p><h1>Playlists</h1>
-    <p class="intro">Keep collections on this device. Add tracks from Library, or save the current queue.</p>
+    <p class="intro">Keep collections on this device. Add tracks from Library, save the queue, or import an M3U file of tracks already in this library.</p>
     <form id="create-playlist" class="inline-form"><input id="new-playlist-name" class="url-input" type="text"
       maxlength="80" placeholder="New playlist name" aria-label="New playlist name" required>
       <button class="primary-button" type="submit">Create</button></form>
+    <div class="section-actions"><button class="row-button" id="import-playlist" type="button">Import M3U playlist</button>
+      <input id="playlist-file" type="file" accept=".m3u,.m3u8" hidden></div>
     <div id="playlist-list" class="playlist-list"></div><div id="playlist-detail"></div></div>`;
   $("#create-playlist").addEventListener("submit", (event) => {
     event.preventDefault();
     if (createPlaylist($("#new-playlist-name").value)) renderPlaylists();
+  });
+  $("#import-playlist").addEventListener("click", () => native ? native.pickPlaylist() : $("#playlist-file").click());
+  $("#playlist-file").addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    if (file) importPlaylistFile(file.name, await file.text());
   });
   const listBox = $("#playlist-list");
   if (!state.playlists.length) listBox.innerHTML = '<div class="empty"><strong>No playlists yet</strong><p>Create one above or add a library track.</p></div>';
@@ -552,6 +568,20 @@ function renderAbout() {
     </div></div>`;
 }
 
+function importPlaylistFile(name, text) {
+  if (!/\.m3u8?$/i.test(name) || text.length > 1024 * 1024) { toast("Choose an M3U playlist under 1 MB."); return; }
+  let result;
+  try { result = Ytmp3Playlists.importM3U(text, state.tracks); }
+  catch { toast("Could not read this playlist."); return; }
+  if (!result.tracks.length) { toast(`No library tracks matched; ${result.missing} entries skipped.`); return; }
+  const list = createPlaylist(uniquePlaylistName(name.replace(/\.m3u8?$/i, "")), result.tracks);
+  if (!list) { toast("Could not create the playlist."); return; }
+  state.selectedPlaylist = list.id;
+  renderPlaylists();
+  toast(`Imported ${result.tracks.length} tracks; ${result.missing} unmatched.`);
+}
+window.ytmp3PlaylistFile = importPlaylistFile;
+
 async function submitURL(event) {
   event.preventDefault();
   const input = $("#url-input");
@@ -592,10 +622,13 @@ function renderJob() {
   dot.className = "job-indicator";
   dot.setAttribute("aria-hidden", "true");
   const message = document.createElement("span");
+  const total = state.job.total || 0;
   message.textContent = state.job.state === "queued" ? "Waiting to download…"
-    : state.job.state === "working" ? "Downloading and converting…"
+    : state.job.state === "working" ? total > 1
+      ? `Processing ${state.job.completed || 0} of ${total}… ${state.job.saved || 0} saved`
+      : "Downloading and converting…"
     : state.job.state === "error" ? state.job.error
-    : "Saved to your library.";
+    : `Saved ${state.job.saved || 1} of ${total || 1} to your library${state.job.failed ? `; ${state.job.failed} skipped` : ""}.`;
   box.append(dot, message);
   container.append(box);
 }
@@ -611,10 +644,14 @@ async function pollJob(id) {
     if (!state.job) throw new Error("Cannot check the download.");
     renderJob();
     if (state.job.state === "done") {
-      toast("Saved to your library");
+      toast(state.job.failed ? `${state.job.saved} saved; ${state.job.failed} skipped.` : "Saved to your library");
       state.urlDraft = "";
       if ($("#url-input")) $("#url-input").value = "";
       await refresh();
+      if (state.job.playlist && Array.isArray(state.job.tracks)) {
+        const ids = state.job.tracks.filter((track) => state.tracks.some((item) => item.id === track));
+        if (ids.length) createPlaylist(uniquePlaylistName(state.job.playlist), ids);
+      }
       return;
     }
     if (state.job.state === "error") return;

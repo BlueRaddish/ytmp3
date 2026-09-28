@@ -20,6 +20,9 @@ const state = {
   view: ["library", "playlists", "queue", "settings", "about"].includes(location.hash.slice(1))
     ? location.hash.slice(1) : "library",
   filter: "",
+  folder: "",
+  sort: savedSettings.sort || "recent",
+  artVersion: 0,
   urlDraft: "",
   repeat: "off",
   shuffle: false,
@@ -91,6 +94,42 @@ function age(timestamp) {
 }
 function titleOf(track) {
   return track.title || track.id.replace(/\.mp3$/i, "");
+}
+function trackArt(track, className = "track-art") {
+  const art = document.createElement("div");
+  art.className = className;
+  art.setAttribute("aria-hidden", "true");
+  if (track?.artwork) {
+    const image = document.createElement("img");
+    image.src = `/cover/${encodeURIComponent(track.id)}?v=${state.artVersion}`;
+    image.alt = "";
+    image.loading = className === "track-art" ? "lazy" : "eager";
+    image.addEventListener("error", () => { art.textContent = "♪"; });
+    art.append(image);
+  } else art.textContent = "♪";
+  return art;
+}
+function inFolder(track, id) {
+  return !id || track.folderId === id || (id.endsWith(":")
+    ? track.folderId?.startsWith(id)
+    : track.folderId?.startsWith(`${id}/`));
+}
+function visibleTracks() {
+  const query = state.filter.toLocaleLowerCase();
+  const result = state.tracks.filter((track) =>
+    inFolder(track, state.folder) &&
+    [titleOf(track), track.artist, track.album, track.folder].some((value) =>
+      (value || "").toLocaleLowerCase().includes(query)));
+  const compare = (a, b) => String(a || "").localeCompare(String(b || ""), undefined, { numeric: true, sensitivity: "base" });
+  result.sort((a, b) => {
+    if (state.sort === "title") return compare(titleOf(a), titleOf(b));
+    if (state.sort === "artist") return compare(a.artist, b.artist) || compare(titleOf(a), titleOf(b));
+    if (state.sort === "album") return compare(a.album, b.album) || compare(titleOf(a), titleOf(b));
+    if (state.sort === "duration") return (a.duration || 0) - (b.duration || 0) || compare(titleOf(a), titleOf(b));
+    if (state.sort === "oldest") return a.modified - b.modified;
+    return b.modified - a.modified;
+  });
+  return result;
 }
 function currentTrack() {
   return state.tracks.find((item) => item.id === state.queue[state.current]);
@@ -183,8 +222,19 @@ function renderLibrary() {
         <p class="form-note" id="url-note">Downloads use yt-dlp. Playlists are limited to 100 items. Save only content you have permission to copy.</p>
       </form><div id="job-container"></div>
     </section>
-    <div class="section-head"><div><h2>Library</h2><p id="library-count"></p></div>
-      <input id="filter" class="search-input" type="search" placeholder="Filter files" aria-label="Filter files"></div>
+    <div class="section-head"><div><h2>Library</h2><p id="library-count"></p></div></div>
+    <div class="library-controls">
+      <input id="filter" class="search-input" type="search" placeholder="Search title, artist, album, folder" aria-label="Search library">
+      <select id="folder-filter" aria-label="Choose folder"></select>
+      <select id="sort-tracks" aria-label="Sort tracks">
+        <option value="recent">Recently added</option><option value="title">Title A–Z</option>
+        <option value="artist">Artist A–Z</option><option value="album">Album A–Z</option>
+        <option value="duration">Shortest first</option><option value="oldest">Oldest first</option>
+      </select>
+      <button class="row-button" id="play-selection" type="button">Play</button>
+      <button class="row-button" id="mix-selection" type="button">Mix</button>
+    </div>
+    <details class="folder-browser"><summary>Browse folders</summary><div id="folder-list"></div></details>
     <div id="track-list" class="track-list"></div>
   </div>`;
   $("#filter").value = state.filter;
@@ -193,6 +243,34 @@ function renderLibrary() {
   $("#filter").addEventListener("input", (event) => {
     state.filter = event.target.value;
     renderTracks();
+  });
+  const folders = [...new Map(state.tracks.flatMap((track) => [
+    [track.rootFolderId, track.rootFolder], [track.folderId, track.folder]
+  ]).filter(([id]) => id)).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  const folderSelect = $("#folder-filter");
+  folderSelect.add(new Option("All folders", ""));
+  folders.forEach(([id, name]) => folderSelect.add(new Option(name, id)));
+  if (folders.some(([id]) => id === state.folder)) folderSelect.value = state.folder;
+  else state.folder = "";
+  folderSelect.addEventListener("change", (event) => { state.folder = event.target.value; renderTracks(); });
+  $("#sort-tracks").value = state.sort;
+  $("#sort-tracks").addEventListener("change", (event) => {
+    state.sort = event.target.value; state.settings.sort = state.sort; persistSettings(); renderTracks();
+  });
+  $("#play-selection").addEventListener("click", () => playCollection(visibleTracks().map((track) => track.id)));
+  $("#mix-selection").addEventListener("click", () => playCollection(visibleTracks().map((track) => track.id), true));
+  const folderList = $("#folder-list");
+  folders.forEach(([id, name]) => {
+    const row = document.createElement("div"); row.className = "folder-row";
+    const count = state.tracks.filter((track) => inFolder(track, id)).length;
+    const label = document.createElement("button"); label.className = "folder-name";
+    label.textContent = `${name} · ${count}`;
+    label.addEventListener("click", () => { state.folder = id; folderSelect.value = id; renderTracks(); });
+    const mix = document.createElement("button"); mix.className = "row-button";
+    mix.textContent = "Mix"; mix.setAttribute("aria-label", `Mix ${name}`);
+    mix.addEventListener("click", () => playCollection(state.tracks.filter((track) => inFolder(track, id)).map((track) => track.id), true));
+    row.append(label, mix); folderList.append(row);
   });
   $("#url-form").addEventListener("submit", submitURL);
   const shared = sessionStorage.getItem("ytmp3_shared_url");
@@ -208,9 +286,10 @@ function renderLibrary() {
 function renderTracks() {
   const list = $("#track-list");
   if (!list) return;
-  const filtered = state.tracks.filter((track) =>
-    titleOf(track).toLocaleLowerCase().includes(state.filter.toLocaleLowerCase()));
-  $("#library-count").textContent = `${state.tracks.length} ${state.tracks.length === 1 ? "file" : "files"}`;
+  const filtered = visibleTracks();
+  $("#library-count").textContent = `${filtered.length} of ${state.tracks.length} tracks`;
+  $("#play-selection").disabled = !filtered.length;
+  $("#mix-selection").disabled = !filtered.length;
   list.replaceChildren();
   if (!filtered.length) {
     const box = document.createElement("div");
@@ -224,23 +303,22 @@ function renderTracks() {
     list.append(box);
     return;
   }
-  filtered.forEach((track) => list.append(trackRow(track)));
+  const ids = filtered.map((track) => track.id);
+  filtered.forEach((track) => list.append(trackRow(track, false, -1, ids)));
 }
 
-function trackRow(track, inQueue = false, index = -1) {
+function trackRow(track, inQueue = false, index = -1, collection = null) {
   const row = document.createElement("div");
   row.className = "track-row";
   if (currentTrack()?.id === track.id) row.classList.add("current");
-  const art = document.createElement("div");
-  art.className = "track-art";
-  art.setAttribute("aria-hidden", "true");
-  art.textContent = "♪";
+  const art = trackArt(track);
   const meta = document.createElement("div");
   meta.className = "track-meta";
   const name = document.createElement("strong");
   name.textContent = titleOf(track);
   const sub = document.createElement("span");
-  sub.textContent = `${(track.size / 1048576).toFixed(1)} MB · MP3`;
+  sub.textContent = [track.artist, track.album, track.duration ? formatTime(track.duration) : null,
+    `${(track.size / 1048576).toFixed(1)} MB`].filter(Boolean).join(" · ");
   meta.append(name, sub);
   const actions = document.createElement("div");
   actions.className = "track-actions";
@@ -249,7 +327,10 @@ function trackRow(track, inQueue = false, index = -1) {
   play.type = "button";
   play.textContent = "Play";
   play.setAttribute("aria-label", `Play ${titleOf(track)}`);
-  play.addEventListener("click", () => playTrack(track.id));
+  play.addEventListener("click", () => {
+    if (collection) state.queue = [...collection];
+    playTrack(track.id);
+  });
   actions.append(play);
   if (inQueue) {
     for (const [label, change] of [["↑", -1], ["↓", 1]]) {
@@ -283,6 +364,14 @@ function trackRow(track, inQueue = false, index = -1) {
     });
     actions.append(remove);
   } else {
+    const more = document.createElement("details");
+    more.className = "track-more";
+    const summary = document.createElement("summary");
+    summary.textContent = "More";
+    summary.setAttribute("aria-label", `More actions for ${titleOf(track)}`);
+    const moreActions = document.createElement("div");
+    moreActions.className = "more-actions";
+    more.append(summary, moreActions);
     const next = document.createElement("button");
     next.className = "row-button";
     next.type = "button";
@@ -292,7 +381,7 @@ function trackRow(track, inQueue = false, index = -1) {
       state.queue.splice(Math.max(0, state.current + 1), 0, track.id);
       persistLists(); syncNativeQueue(); render(); toast("Added next");
     });
-    actions.append(next);
+    moreActions.append(next);
     const add = document.createElement("button");
     add.className = "row-button";
     add.type = "button";
@@ -304,14 +393,19 @@ function trackRow(track, inQueue = false, index = -1) {
       $("#queue-count").textContent = String(state.queue.length);
       toast("Added to queue");
     });
-    actions.append(add);
+    moreActions.append(add);
     const playlist = document.createElement("button");
     playlist.className = "row-button";
     playlist.type = "button";
     playlist.textContent = "Playlist";
     playlist.setAttribute("aria-label", `Add ${titleOf(track)} to playlist`);
     playlist.addEventListener("click", () => openPlaylistPicker(track.id));
-    actions.append(playlist);
+    moreActions.append(playlist);
+    const edit = document.createElement("button");
+    edit.className = "row-button"; edit.type = "button"; edit.textContent = "Edit";
+    edit.setAttribute("aria-label", `Edit ${titleOf(track)}`);
+    edit.addEventListener("click", () => openTrackEditor(track));
+    moreActions.append(edit);
     if (!track.external) {
     const save = document.createElement("a");
     save.className = "button-link";
@@ -324,12 +418,77 @@ function trackRow(track, inQueue = false, index = -1) {
       const result = JSON.parse(native.exportTrack(track.id));
       toast(result.error || "Saving to Music on this phone…");
     });
-    actions.append(save);
+    moreActions.append(save);
     }
+    actions.append(more);
   }
   row.append(art, meta, actions);
   return row;
 }
+
+function openTrackEditor(track) {
+  const dialog = $("#track-dialog");
+  dialog.dataset.track = track.id;
+  $("#edit-title").value = titleOf(track);
+  $("#edit-artist").value = track.artist || "";
+  $("#edit-album").value = track.album || "";
+  $("#edit-cover").value = "";
+  $("#edit-cover").hidden = !!native;
+  $("#pick-cover").hidden = !native;
+  $("#edit-art").replaceChildren(trackArt(track));
+  dialog.showModal();
+  $("#edit-title").focus();
+}
+async function saveTrackEdit(removeCover = false) {
+  const dialog = $("#track-dialog");
+  const id = dialog.dataset.track;
+  const body = { id, title: $("#edit-title").value.trim(),
+    artist: $("#edit-artist").value.trim(), album: $("#edit-album").value.trim() };
+  if (!body.title) { toast("Enter a track title."); return; }
+  try {
+    if (native) {
+      const result = JSON.parse(native.editTrack(id, body.title, body.artist, body.album));
+      if (result.error) throw new Error(result.error);
+      if (removeCover) {
+        const removed = JSON.parse(native.removeCover(id));
+        if (removed.error) throw new Error(removed.error);
+      }
+    } else {
+      const file = $("#edit-cover").files?.[0];
+      if (file && !removeCover) {
+        if (file.size > 1024 * 1024 || !["image/jpeg", "image/png"].includes(file.type))
+          throw new Error("Choose a JPEG or PNG cover under 1 MB.");
+        body.cover = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(",", 2)[1]);
+          reader.onerror = () => reject(new Error("Could not read cover image."));
+          reader.readAsDataURL(file);
+        });
+      }
+      if (removeCover) body.removeCover = true;
+      const response = await fetch("/api/tracks/edit", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!response.ok) throw new Error((await response.json()).error || "Could not save track details.");
+    }
+    state.artVersion++;
+    dialog.close();
+    await refresh();
+    toast(removeCover ? "Chosen cover removed" : "Track details saved");
+    if (native) syncNativeQueue();
+  } catch (error) { toast(error.message || "Could not save track details."); }
+}
+$("#cancel-edit").addEventListener("click", () => $("#track-dialog").close());
+$("#track-editor").addEventListener("submit", (event) => { event.preventDefault(); saveTrackEdit(); });
+$("#remove-cover").addEventListener("click", () => saveTrackEdit(true));
+$("#pick-cover").addEventListener("click", () => native.pickCover($("#track-dialog").dataset.track));
+window.ytmp3CoverChanged = async (result) => {
+  if (result.error) { toast(result.error); return; }
+  state.artVersion++;
+  $("#track-dialog").close();
+  await refresh();
+  syncNativeQueue();
+  toast("Cover saved");
+};
 
 function createPlaylist(name, ids = []) {
   const list = Ytmp3Playlists.create(state.playlists, name, ids);
@@ -449,6 +608,7 @@ function renderPlaylists() {
     const track = state.tracks.find((item) => item.id === id);
     const row = document.createElement("div"); row.className = "playlist-track";
     const title = document.createElement("span"); title.textContent = track ? titleOf(track) : "Unavailable track";
+    if (track) row.append(trackArt(track));
     row.append(title);
     for (const [label, change] of [["↑", -1], ["↓", 1]]) {
       const button = document.createElement("button"); button.type = "button"; button.className = "row-button";
@@ -662,6 +822,21 @@ async function pollJob(id) {
   }
 }
 
+function playCollection(ids, mix = false) {
+  if (!ids.length) return;
+  state.queue = [...ids];
+  if (mix) {
+    for (let i = state.queue.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [state.queue[i], state.queue[j]] = [state.queue[j], state.queue[i]];
+    }
+  }
+  state.shuffle = false;
+  if (native) native.command("shuffle", 0);
+  $("#shuffle").setAttribute("aria-pressed", "false");
+  $("#shuffle").setAttribute("aria-label", "Shuffle off");
+  playTrack(state.queue[0]);
+}
 function playTrack(id) {
   if (!state.queue.includes(id)) state.queue = state.tracks.map((item) => item.id);
   state.queue = state.queue.filter((item) => state.tracks.some((track) => track.id === item));
@@ -680,14 +855,16 @@ function playTrack(id) {
   audio.play().catch(() => toast("Tap Play to start audio."));
   if ("mediaSession" in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: titleOf(track), artist: "ytmp3 library"
+      title: titleOf(track), artist: track.artist || "", album: track.album || "",
+      artwork: track.artwork ? [{ src: `/cover/${encodeURIComponent(track.id)}?v=${state.artVersion}` }] : []
     });
   }
   render();
 }
 function queueItems() {
   return state.queue.map((id) => state.tracks.find((item) => item.id === id))
-    .filter(Boolean).map((track) => ({ id: track.id, title: titleOf(track) }));
+    .filter(Boolean).map((track) => ({ id: track.id, title: titleOf(track),
+      artist: track.artist || "", album: track.album || "", artwork: !!track.artwork }));
 }
 function syncNativeQueue() {
   if (native) native.replaceQueue(JSON.stringify(queueItems()), Math.max(0, state.current));
@@ -729,7 +906,14 @@ function move(direction, fromEnd = false) {
 function updatePlayer() {
   const track = currentTrack();
   $("#player-title").textContent = track ? titleOf(track) : "Nothing playing";
-  $("#player-subtitle").textContent = track ? "Personal library" : "Choose a file from your library";
+  $("#player-subtitle").textContent = track ? [track.artist, track.album].filter(Boolean).join(" · ") || track.folder || "Personal library"
+    : "Choose a file from your library";
+  const playerArt = $(".player-art");
+  const artKey = `${track?.id || ""}:${state.artVersion}`;
+  if (playerArt.dataset.key !== artKey) {
+    playerArt.dataset.key = artKey;
+    playerArt.replaceChildren(...trackArt(track, "player-art").childNodes);
+  }
   const playing = native ? state.nativePlayback.playing : !audio.paused;
   const duration = native ? Math.ceil((state.nativePlayback.duration || 0) / 1000) : audio.duration;
   const position = Math.min(duration || Infinity,

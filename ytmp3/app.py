@@ -1,6 +1,9 @@
 """Small authenticated server for a personal MP3 library."""
 
 import argparse
+import base64
+import binascii
+import hashlib
 import hmac
 import ipaddress
 import json
@@ -20,6 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
+from tinytag import TinyTag
+
 from .config import DEFAULT_TEMPLATE
 from .download import download_mp3
 from .info import detail, source_items
@@ -28,6 +33,15 @@ from .naming import fields_for, render
 WEB = Path(__file__).with_name("web")
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 MAX_POST = 8192
+MAX_COVER = 1024 * 1024
+
+
+def image_type(data: bytes) -> str | None:
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    return None
 
 
 def validate_source(raw: str) -> str:
@@ -83,6 +97,14 @@ class Library:
                 self.includes.append(resolved)
         self.jobs: dict[str, dict] = {}
         self.lock = threading.Lock()
+        self.edits_file = self.path / ".ytmp3-track-edits.json"
+        try:
+            self.edits = json.loads(self.edits_file.read_text("utf-8"))
+            if not isinstance(self.edits, dict):
+                self.edits = {}
+        except (OSError, ValueError):
+            self.edits = {}
+        self.tag_cache: dict[str, tuple[int, int, dict]] = {}
         # One conversion at a time avoids filename races and keeps ffmpeg load
         # modest. Raise workers and add atomic reservation if queues become slow.
         self.pool = ThreadPoolExecutor(max_workers=1)
@@ -96,9 +118,98 @@ class Library:
                     continue
                 stat = path.stat()
                 track_id = path.name if index == 0 else f"@{index - 1}/{path.relative_to(root).as_posix()}"
-                entries.append({"id": track_id, "title": path.stem,
+                relative_folder = path.parent.relative_to(root).as_posix()
+                folder = root.name if relative_folder == "." else f"{root.name}/{relative_folder}"
+                data = self._tags(path, stat)
+                edit = self.edits.get(track_id, {})
+                if not isinstance(edit, dict):
+                    edit = {}
+                cover = self._cover_file(track_id)
+                entries.append({"id": track_id, "title": edit.get("title") or data["title"] or path.stem,
+                                "artist": edit.get("artist", data["artist"]),
+                                "album": edit.get("album", data["album"]),
+                                "duration": data["duration"], "artwork": cover.is_file() or data["artwork"],
+                                "folder": folder, "folderId": f"{index}:{'' if relative_folder == '.' else relative_folder}",
+                                "rootFolder": root.name, "rootFolderId": f"{index}:",
                                 "size": stat.st_size, "modified": int(stat.st_mtime)})
         return sorted(entries, key=lambda item: item["modified"], reverse=True)
+
+    def _tags(self, path: Path, stat: os.stat_result) -> dict:
+        key = str(path)
+        cached = self.tag_cache.get(key)
+        if cached and cached[:2] == (stat.st_mtime_ns, stat.st_size):
+            return cached[2]
+        data = {"title": "", "artist": "", "album": "", "duration": 0, "artwork": False}
+        try:
+            tag = TinyTag.get(path, image=True)
+            picture = tag.images.any
+            data.update(title=tag.title or "", artist=tag.artist or "", album=tag.album or "",
+                        duration=round(tag.duration or 0),
+                        artwork=bool(picture and image_type(picture.data) and len(picture.data) <= MAX_COVER))
+        except Exception:
+            pass  # An unreadable tag must not hide an otherwise playable file.
+        self.tag_cache[key] = (stat.st_mtime_ns, stat.st_size, data)
+        return data
+
+    def _cover_file(self, track_id: str) -> Path:
+        return self.path / ".ytmp3-covers" / hashlib.sha256(track_id.encode()).hexdigest()
+
+    def cover(self, track_id: str) -> tuple[bytes, str] | None:
+        path = self.file(track_id)
+        if not path:
+            return None
+        custom = self._cover_file(track_id)
+        if custom.is_file():
+            data = custom.read_bytes()
+        else:
+            try:
+                picture = TinyTag.get(path, image=True).images.any
+                data = picture.data if picture else b""
+            except Exception:
+                data = b""
+        mime = image_type(data) if len(data) <= MAX_COVER else None
+        return (data, mime) if mime else None
+
+    def edit_track(self, body: dict) -> None:
+        if not isinstance(body, dict):
+            raise ValueError("Invalid track details.")
+        track_id = body.get("id")
+        if not isinstance(track_id, str) or not self.file(track_id):
+            raise ValueError("Track not found.")
+        edit = {}
+        for field in ("title", "artist", "album"):
+            value = body.get(field, "")
+            if not isinstance(value, str) or len(value) > 160:
+                raise ValueError("Track details are too long.")
+            edit[field] = value.strip()
+        raw_cover = body.get("cover")
+        cover_data = None
+        if raw_cover is not None:
+            if not isinstance(raw_cover, str) or len(raw_cover) > MAX_COVER * 4 // 3 + 8:
+                raise ValueError("Cover must be a JPEG or PNG under 1 MB.")
+            try:
+                cover_data = base64.b64decode(raw_cover, validate=True)
+            except binascii.Error as exc:
+                raise ValueError("Invalid cover image.") from exc
+            if not image_type(cover_data) or len(cover_data) > MAX_COVER:
+                raise ValueError("Cover must be a JPEG or PNG under 1 MB.")
+        cover = self._cover_file(track_id)
+        with self.lock:
+            if cover_data is not None:
+                cover.parent.mkdir(exist_ok=True)
+                with tempfile.NamedTemporaryFile(dir=cover.parent, delete=False) as temporary:
+                    temporary.write(cover_data)
+                    temp_path = Path(temporary.name)
+                os.replace(temp_path, cover)
+            if body.get("removeCover") is True:
+                cover.unlink(missing_ok=True)
+            updated = dict(self.edits)
+            updated[track_id] = edit
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=self.path, delete=False) as temporary:
+                json.dump(updated, temporary)
+                temp_path = Path(temporary.name)
+            os.replace(temp_path, self.edits_file)
+            self.edits = updated
 
     def file(self, name: str) -> Path | None:
         if not name or not name.lower().endswith(".mp3"):
@@ -265,6 +376,9 @@ class AppHandler(BaseHTTPRequestHandler):
             self._asset(parts.path[1:], "image/png")
         elif parts.path == "/api/tracks":
             self._json(200, {"tracks": self.server.library.tracks()})
+        elif parts.path.startswith("/cover/"):
+            cover = self.server.library.cover(unquote(parts.path[len("/cover/"):]))
+            self._send(200, *cover, headers={"Cache-Control": "no-store"}) if cover else self.send_error(HTTPStatus.NOT_FOUND)
         elif parts.path.startswith("/api/jobs/"):
             job = self.server.library.job(parts.path.rsplit("/", 1)[-1])
             self._json(200, job) if job else self.send_error(HTTPStatus.NOT_FOUND)
@@ -280,7 +394,7 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._authorized():
             return
-        if self.path != "/api/download":
+        if self.path not in {"/api/download", "/api/tracks/edit"}:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         origin = self.headers.get("Origin")
@@ -295,16 +409,19 @@ class AppHandler(BaseHTTPRequestHandler):
         except ValueError:
             self.send_error(HTTPStatus.BAD_REQUEST, "Invalid content length.")
             return
-        if size < 1 or size > MAX_POST:
+        if size < 1 or size > (MAX_COVER * 4 // 3 + MAX_POST if self.path == "/api/tracks/edit" else MAX_POST):
             self.send_error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
             return
         try:
             body = json.loads(self.rfile.read(size))
-            job_id = self.server.library.submit(body["url"])
+            if self.path == "/api/tracks/edit":
+                self.server.library.edit_track(body)
+            else:
+                job_id = self.server.library.submit(body["url"])
         except (ValueError, KeyError, TypeError) as exc:
             self._json(400, {"error": str(exc)})
             return
-        self._json(202, {"job": job_id})
+        self._json(200, {}) if self.path == "/api/tracks/edit" else self._json(202, {"job": job_id})
 
     def _media(self, name: str, download: bool) -> None:
         path = self.server.library.file(name)

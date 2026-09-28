@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
+import android.media.MediaMetadataRetriever;
 import android.os.Environment;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
@@ -22,9 +23,11 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.nio.file.Files;
+import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Map;
@@ -40,6 +43,7 @@ final class AndroidLibrary {
     private final ExecutorService exports = Executors.newSingleThreadExecutor();
     private final Map<String, Job> jobs = new ConcurrentHashMap<>();
     private final Map<String, Uri> indexedFiles = new ConcurrentHashMap<>();
+    private final Map<String, JSONObject> tagCache = new ConcurrentHashMap<>();
     private boolean ready;
     private static final String FOLDERS = "folders";
 
@@ -86,14 +90,23 @@ final class AndroidLibrary {
             Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
             for (File file : files) {
                 try {
-                    tracks.put(new JSONObject().put("id", file.getName())
-                        .put("title", file.getName().replaceFirst("(?i)\\.mp3$", ""))
-                        .put("size", file.length()).put("modified", file.lastModified() / 1000));
+                    tracks.put(track(file.getName(), file.getName(), Uri.fromFile(file),
+                        file.length(), file.lastModified(), directory.getName(), "own", "own", false));
                 } catch (JSONException ignored) { /* Values come from local filenames. */ }
             }
         }
         for (String raw : folderUris()) {
-            try { scan(Uri.parse(raw), DocumentsContract.getTreeDocumentId(Uri.parse(raw)), tracks, 0); }
+            try {
+                Uri tree = Uri.parse(raw);
+                String root = DocumentsContract.getTreeDocumentId(tree);
+                String label = root;
+                try (Cursor cursor = context.getContentResolver().query(
+                        DocumentsContract.buildDocumentUriUsingTree(tree, root),
+                        new String[] { DocumentsContract.Document.COLUMN_DISPLAY_NAME }, null, null, null)) {
+                    if (cursor != null && cursor.moveToFirst()) label = cursor.getString(0);
+                }
+                scan(tree, root, tracks, 0, label, raw);
+            }
             catch (Exception error) { Log.w("ytmp3", "Could not scan selected folder", error); }
         }
         try { return new JSONObject().put("tracks", tracks).toString(); }
@@ -102,7 +115,7 @@ final class AndroidLibrary {
 
     // The 10,000-entry cap keeps a giant document-provider tree from blocking the WebView bridge.
     // A paged media index is the upgrade path for libraries beyond this size.
-    private void scan(Uri tree, String parent, JSONArray tracks, int depth) {
+    private void scan(Uri tree, String parent, JSONArray tracks, int depth, String folder, String folderId) {
         if (depth > 32 || tracks.length() >= 10000) return;
         Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parent);
         String[] columns = { DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -115,20 +128,140 @@ final class AndroidLibrary {
                 String name = cursor.getString(1);
                 String type = cursor.getString(2);
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(type)) {
-                    scan(tree, id, tracks, depth + 1);
+                    scan(tree, id, tracks, depth + 1, folder + "/" + name, tree + "/" + id);
                 } else if (name != null && name.toLowerCase(java.util.Locale.ROOT).endsWith(".mp3")) {
                     Uri uri = DocumentsContract.buildDocumentUriUsingTree(tree, id);
                     String key = uri.toString();
                     indexedFiles.put(key, uri);
-                    try { tracks.put(new JSONObject().put("id", key)
-                        .put("title", name.replaceFirst("(?i)\\.mp3$", ""))
-                        .put("size", cursor.isNull(3) ? 0 : cursor.getLong(3))
-                        .put("modified", cursor.isNull(4) ? 0 : cursor.getLong(4) / 1000)
-                        .put("external", true)); }
+                    try { tracks.put(track(key, name, uri,
+                        cursor.isNull(3) ? 0 : cursor.getLong(3),
+                        cursor.isNull(4) ? 0 : cursor.getLong(4), folder, folderId, tree.toString(), true)); }
                     catch (JSONException ignored) { }
                 }
             }
         }
+    }
+
+    private JSONObject track(String id, String name, Uri uri, long size, long modified,
+            String folder, String folderId, String rootFolderId, boolean external) throws JSONException {
+        String cacheKey = id + "|" + size + "|" + modified;
+        JSONObject tags = tagCache.get(cacheKey);
+        if (tags == null) {
+            tags = new JSONObject();
+            try (MediaMetadataRetriever reader = new MediaMetadataRetriever()) {
+                setSource(reader, uri);
+                tags.put("title", reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE));
+                tags.put("artist", reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST));
+                tags.put("album", reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM));
+                String duration = reader.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+                tags.put("duration", duration == null ? 0 : Long.parseLong(duration) / 1000);
+                byte[] art = reader.getEmbeddedPicture();
+                tags.put("artwork", art != null && art.length <= 1024 * 1024 && imageType(art) != null);
+            } catch (Exception error) { Log.w("ytmp3", "Could not read MP3 tags", error); }
+            tagCache.put(cacheKey, tags);
+        }
+        JSONObject edit = edits(id);
+        File cover = coverFile(id);
+        return new JSONObject().put("id", id)
+            .put("title", edit.has("title") && !edit.optString("title").isEmpty() ? edit.optString("title")
+                : tags.optString("title", name.replaceFirst("(?i)\\.mp3$", "")))
+            .put("artist", edit.has("artist") ? edit.optString("artist") : tags.optString("artist"))
+            .put("album", edit.has("album") ? edit.optString("album") : tags.optString("album"))
+            .put("duration", tags.optLong("duration"))
+            .put("artwork", cover.isFile() || tags.optBoolean("artwork"))
+            .put("folder", folder).put("folderId", folderId)
+            .put("rootFolder", folder.split("/", 2)[0])
+            .put("rootFolderId", rootFolderId)
+            .put("size", size).put("modified", modified / 1000).put("external", external);
+    }
+
+    private JSONObject edits(String id) {
+        try { return new JSONObject(context.getSharedPreferences("track_edits", 0).getString(id, "{}")); }
+        catch (JSONException ignored) { return new JSONObject(); }
+    }
+
+    private void setSource(MediaMetadataRetriever reader, Uri uri) {
+        if ("file".equals(uri.getScheme())) reader.setDataSource(uri.getPath());
+        else reader.setDataSource(context, uri);
+    }
+
+    String editTrack(String id, String title, String artist, String album) {
+        if (mediaUri(id) == null) return failure("Track not found.");
+        if (title == null || artist == null || album == null
+                || title.length() > 160 || artist.length() > 160 || album.length() > 160) {
+            return failure("Track details are too long.");
+        }
+        try {
+            JSONObject edit = new JSONObject().put("title", title.trim())
+                .put("artist", artist.trim()).put("album", album.trim());
+            return context.getSharedPreferences("track_edits", 0).edit()
+                .putString(id, edit.toString()).commit() ? "{}" : failure("Could not save track details.");
+        } catch (JSONException error) { return failure("Could not save track details."); }
+    }
+
+    private File coverFile(String id) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(id.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder name = new StringBuilder();
+            for (byte value : hash) name.append(String.format(java.util.Locale.ROOT, "%02x", value & 0xff));
+            return new File(new File(context.getFilesDir(), "covers"), name.toString());
+        } catch (Exception error) { throw new IllegalStateException(error); }
+    }
+
+    private static String imageType(byte[] data) {
+        if (data.length >= 3 && (data[0] & 0xff) == 0xff && (data[1] & 0xff) == 0xd8 && (data[2] & 0xff) == 0xff)
+            return "image/jpeg";
+        if (data.length >= 8 && data[0] == (byte) 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G')
+            return "image/png";
+        return null;
+    }
+
+    byte[] cover(String id) {
+        Uri uri = mediaUri(id);
+        if (uri == null) return null;
+        try {
+            File custom = coverFile(id);
+            if (custom.isFile()) return Files.readAllBytes(custom.toPath());
+            try (MediaMetadataRetriever reader = new MediaMetadataRetriever()) {
+                setSource(reader, uri);
+                byte[] data = reader.getEmbeddedPicture();
+                return data != null && data.length <= 1024 * 1024 && imageType(data) != null ? data : null;
+            }
+        } catch (Exception error) { return null; }
+    }
+
+    static String coverType(byte[] data) { return imageType(data); }
+
+    String saveCover(String id, Uri source) {
+        if (mediaUri(id) == null) return failure("Track not found.");
+        File target = coverFile(id);
+        File temporary = null;
+        try (InputStream input = context.getContentResolver().openInputStream(source)) {
+            if (input == null) return failure("Could not open cover image.");
+            if (!target.getParentFile().exists() && !target.getParentFile().mkdirs())
+                return failure("Could not save cover image.");
+            temporary = File.createTempFile("cover-", ".tmp", target.getParentFile());
+            try (OutputStream output = Files.newOutputStream(temporary.toPath())) {
+                byte[] buffer = new byte[8192];
+                int count, total = 0;
+                while ((count = input.read(buffer)) != -1) {
+                    total += count;
+                    if (total > 1024 * 1024) return failure("Cover must be under 1 MB.");
+                    output.write(buffer, 0, count);
+                }
+            }
+            if (imageType(Files.readAllBytes(temporary.toPath())) == null)
+                return failure("Choose a JPEG or PNG cover.");
+            if (!temporary.renameTo(target)) return failure("Could not save cover image.");
+            return "{}";
+        } catch (Exception error) { return failure("Could not save cover image."); }
+        finally { if (temporary != null) temporary.delete(); }
+    }
+
+    String removeCover(String id) {
+        if (mediaUri(id) == null) return failure("Track not found.");
+        File cover = coverFile(id);
+        return !cover.exists() || cover.delete() ? "{}" : failure("Could not remove cover image.");
     }
 
     private java.util.List<String> folderUris() {
@@ -179,7 +312,16 @@ final class AndroidLibrary {
         Uri selected = indexedFiles.get(id);
         if (selected != null) return selected;
         File own = file(id);
-        return own == null ? null : Uri.fromFile(own);
+        if (own != null) return Uri.fromFile(own);
+        if (id != null) {
+            Uri uri = Uri.parse(id);
+            if ("content".equals(uri.getScheme()) && DocumentsContract.isDocumentUri(context, uri)) {
+                for (String tree : folderUris()) {
+                    if (id.startsWith(tree + "/document/")) return uri;
+                }
+            }
+        }
+        return null;
     }
 
     File file(String name) {

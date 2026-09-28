@@ -50,6 +50,7 @@ public final class MainActivity extends Activity {
     private static final Pattern RANGE = Pattern.compile("bytes=(\\d*)-(\\d*)");
     private static final int PICK_FOLDER = 19;
     private static final int PICK_PLAYLIST = 20;
+    private static final int PICK_COVER = 21;
     private AndroidLibrary library;
     private WebView web;
     private MediaController controller;
@@ -57,6 +58,7 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private volatile String playbackSnapshot = "{}";
     private final List<Runnable> pendingPlayback = new ArrayList<>();
+    private String pendingCoverId;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override public void onCreate(Bundle state) {
@@ -94,6 +96,12 @@ public final class MainActivity extends Activity {
                         if (header.getKey().equalsIgnoreCase("range")) range = header.getValue();
                     }
                     return media(uri.getLastPathSegment(), range);
+                }
+                if (path.startsWith("/cover/")) {
+                    byte[] image = library.cover(uri.getLastPathSegment());
+                    String type = image == null ? null : AndroidLibrary.coverType(image);
+                    if (type == null) return response(404, "text/plain", "Not found");
+                    return new WebResourceResponse(type, null, new ByteArrayInputStream(image));
                 }
                 String asset;
                 String type;
@@ -172,8 +180,14 @@ public final class MainActivity extends Activity {
             JSONObject entry = entries.getJSONObject(i);
             String id = entry.getString("id");
             Uri uri = library.mediaUri(id);
-            if (uri != null) items.add(new MediaItem.Builder().setMediaId(id).setUri(uri)
-                .setMediaMetadata(new MediaMetadata.Builder().setTitle(entry.getString("title")).build()).build());
+            if (uri != null) {
+                MediaMetadata.Builder metadata = new MediaMetadata.Builder().setTitle(entry.getString("title"))
+                    .setArtist(entry.optString("artist")).setAlbumTitle(entry.optString("album"));
+                if (entry.optBoolean("artwork")) metadata.setArtworkUri(
+                    Uri.parse("content://io.github.blueraddish.ytmp3.covers/" + Uri.encode(id)));
+                items.add(new MediaItem.Builder().setMediaId(id).setUri(uri)
+                    .setMediaMetadata(metadata.build()).build());
+            }
         }
         return items;
     }
@@ -199,6 +213,19 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public String job(String id) { return library.job(id); }
         @JavascriptInterface public String exportTrack(String id) { return library.exportTrack(id); }
         @JavascriptInterface public String folders() { return library.folders(); }
+        @JavascriptInterface public String editTrack(String id, String title, String artist, String album) {
+            return library.editTrack(id, title, artist, album);
+        }
+        @JavascriptInterface public String removeCover(String id) { return library.removeCover(id); }
+        @JavascriptInterface public void pickCover(String id) {
+            handler.post(() -> {
+                if (library.mediaUri(id) == null) return;
+                pendingCoverId = id;
+                startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), PICK_COVER);
+            });
+        }
         @JavascriptInterface public String removeFolder(String uri) { return library.removeFolder(uri); }
         @JavascriptInterface public void pickFolder() {
             handler.post(() -> startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
@@ -267,6 +294,15 @@ public final class MainActivity extends Activity {
         super.onActivityResult(request, result, data);
         if (request == PICK_PLAYLIST) {
             if (result == RESULT_OK && data != null && data.getData() != null) readPlaylist(data.getData());
+            return;
+        }
+        if (request == PICK_COVER) {
+            String id = pendingCoverId;
+            pendingCoverId = null;
+            if (id != null && result == RESULT_OK && data != null && data.getData() != null) {
+                String resultJson = library.saveCover(id, data.getData());
+                web.evaluateJavascript("window.ytmp3CoverChanged(" + resultJson + ")", null);
+            }
             return;
         }
         if (request != PICK_FOLDER || result != RESULT_OK || data == null || data.getData() == null) return;

@@ -15,7 +15,7 @@ pip install -e .
 ytmp3 app
 ```
 
-Open the URL printed in the terminal. The app accepts a track URL or a playlist URL supported by yt-dlp, converts available audio to MP3, and keeps completed files on the PC in `~/Music/ytmp3` by default. Playlist links are limited to 100 items; each successful download stays saved if another item fails, and the app creates a local playlist from the saved files. The player supports playlists, queue editing, seek, volume, speed, shuffle, and repeat. Playlists and interface preferences are saved in the browser on that device.
+Open the URL printed in the terminal. The app accepts a track URL or a playlist URL supported by yt-dlp, converts available audio to MP3, and keeps completed files on the PC in `~/Music/ytmp3` by default. Playlist links are limited to 100 items; each successful download stays saved if another item fails, and the app creates a local playlist from the saved files. The player supports playlists, queue editing, seek, volume, speed, shuffle, and repeat. Search title, artist, album, and folder; sort by date, title, artist, album, or duration; select a folder to play or mix its tracks. Embedded MP3 tags and JPEG/PNG covers appear in the library and player. Playlists and interface preferences are saved in the browser on that device.
 
 Add existing MP3 folders to the PC library at startup; included folders and their subfolders are read without moving their files:
 
@@ -33,7 +33,9 @@ The web app can receive shared links when installed from a supporting browser on
 
 The Android app runs yt-dlp and ffmpeg **on the phone**. It stores MP3s in its own on-device library and works without a PC server. It appears in Android's Share menu for text links; a shared URL fills the form and waits for you to tap **Save as MP3**. **Save file** exports a copy to `Music/ytmp3` for other apps.
 
-In **Settings → Media library**, choose additional MP3 folders with Android's folder picker. The app remembers the selected folders and rescans them on launch or when you tap **Rescan library**. Subfolders are included. Remove a folder in Settings to stop listing it; its files stay where they are. Playlists, queue edits, dark/light/device theme, compact rows, and playback speed are available on the phone. Audio keeps playing with the screen locked and offers Android media notification controls. Playlist URLs download up to 100 items on the phone and create a local playlist of successful tracks.
+In **Settings → Media library**, choose additional MP3 folders with Android's folder picker. The app remembers the selected folders and rescans them on launch or when you tap **Rescan library**. Subfolders are included. Remove a folder in Settings to stop listing it; its files stay where they are. Playlists, queue edits, dark/light/device theme, compact rows, and playback speed are available on the phone. Audio keeps playing with the screen locked and offers Android media notification controls with track artwork. Playlist URLs download up to 100 items on the phone and create a local playlist of successful tracks.
+
+Use **Edit** on a library track to change its displayed title, artist, album, or cover. Edits are stored inside ytmp3 on that device and do not rewrite the MP3, including files in selected read-only folders. Removing a chosen cover reveals the embedded cover again. PC edits live in `.ytmp3-track-edits.json` and `.ytmp3-covers` inside the library; Android edits and covers live in app storage. Back up those alongside your library if you want to keep the edits.
 
 In **Playlists**, **Import M3U playlist** reads an `.m3u` or `.m3u8` file on either device. It matches filenames to MP3s already in that device's library, preserves the listed order, and reports entries it could not match. Importing an M3U does not download missing files. Spotify and YouTube Music account exports are not directly imported yet.
 
@@ -73,6 +75,7 @@ See the [VLC audio feature review](docs/VLC_AUDIO_RESEARCH.md) and [Spotify/YouT
 ```sh
 python -m pytest
 python tests/check_app.py
+python tests/check_metadata.py
 node tests/check_playlists.js
 cd android && ./gradlew assembleDebug
 ```

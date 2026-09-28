@@ -77,6 +77,22 @@
         <button type="submit" class="primary-button">Add track</button></div>
     </form>
   </dialog>
+  <dialog id="track-dialog" aria-labelledby="track-dialog-title">
+    <form id="track-editor">
+      <h2 id="track-dialog-title">Edit track</h2>
+      <p class="form-note">Details and chosen covers are saved in ytmp3 on this device. The MP3 file stays unchanged.</p>
+      <div id="edit-art"></div>
+      <label for="edit-title">Title</label><input id="edit-title" maxlength="160" required>
+      <label for="edit-artist">Artist</label><input id="edit-artist" maxlength="160">
+      <label for="edit-album">Album</label><input id="edit-album" maxlength="160">
+      <label for="edit-cover">Cover image (JPEG or PNG, under 1 MB)</label>
+      <input id="edit-cover" type="file" accept="image/jpeg,image/png">
+      <button id="pick-cover" class="row-button" type="button" hidden>Choose cover from phone</button>
+      <button id="remove-cover" class="row-button" type="button">Remove chosen cover</button>
+      <div class="dialog-actions"><button id="cancel-edit" class="row-button" type="button">Cancel</button>
+        <button class="primary-button" type="submit">Save details</button></div>
+    </form>
+  </dialog>
   <dialog id="confirm-dialog" aria-labelledby="confirm-title">
     <form method="dialog"><h2 id="confirm-title">Delete playlist?</h2><p id="confirm-text"></p>
       <div class="dialog-actions"><button class="row-button" value="cancel">Cancel</button>

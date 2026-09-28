@@ -2,15 +2,15 @@
 
 import sys
 import tempfile
-import unicodedata
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from . import help as helptext
 from .config import Config, is_rclone
 from .dest import DeliveryError, deliver, exists
 from .download import download_mp3
 from .naming import fields_for, render
-from .search import Result, detail, search
+from .info import detail
 
 # Options that take a value, mapped to the attribute they set.
 VALUE_FLAGS = {
@@ -18,11 +18,8 @@ VALUE_FLAGS = {
     "-o": "out", "--out": "out",
     "-t": "template", "--template": "template",
     "-n": "name", "--name": "name",
-    "-l": "limit", "--limit": "limit",
 }
 BOOL_FLAGS = {
-    "-y": "yes", "--yes": "yes",
-    "--any": "any",
     "--force": "force",
     "--dry-run": "dry_run",
     "-v": "verbose", "--verbose": "verbose",
@@ -41,9 +38,6 @@ class Options:
         self.out = None
         self.template = None
         self.name = None
-        self.limit = 10
-        self.yes = False
-        self.any = False
         self.force = False
         self.dry_run = False
         self.verbose = False
@@ -88,92 +82,12 @@ def parse(argv: list[str]) -> Options:
         opts.rest.append(token)
         index += 1
 
-    if isinstance(opts.limit, str):
-        if not opts.limit.isdigit() or int(opts.limit) < 1:
-            raise UsageError(f"--limit needs a positive number, got {opts.limit!r}")
-        opts.limit = int(opts.limit)
     return opts
 
 
 def _looks_negative(token: str) -> bool:
     """Allow a bare '-' and negative numbers through as arguments."""
     return token == "-" or token[1:].replace(".", "", 1).isdigit()
-
-
-# --- display helpers -------------------------------------------------------
-
-def _width(text: str) -> int:
-    """Terminal columns a string occupies, counting CJK glyphs as two."""
-    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
-
-
-def _fit(text: str, limit: int) -> str:
-    if _width(text) <= limit:
-        return text
-    out, used = "", 0
-    for char in text:
-        step = 2 if unicodedata.east_asian_width(char) in "WF" else 1
-        if used + step > limit - 1:
-            break
-        out += char
-        used += step
-    return out + "…"
-
-
-def _pad(text: str, limit: int) -> str:
-    return text + " " * max(0, limit - _width(text))
-
-
-def _views(count: int) -> str:
-    for size, suffix in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")):
-        if count >= size:
-            return f"{count / size:.1f}{suffix}"
-    return str(count)
-
-
-def _clock(seconds: int) -> str:
-    return f"{seconds // 60}:{seconds % 60:02d}"
-
-
-TITLE_COLUMN = 46
-CHANNEL_COLUMN = 20
-
-
-def _show(results: list[Result]) -> None:
-    for number, item in enumerate(results, start=1):
-        mark = "★" if item.is_catalog else " "
-        head = f"{number:>3}  {mark}  {_views(item.views):>6}  {_clock(item.duration):>5}  "
-        title = _pad(_fit(item.title, TITLE_COLUMN), TITLE_COLUMN)
-        print(f"{head}{title}  {_fit(item.channel, CHANNEL_COLUMN)}")
-    if any(item.is_catalog for item in results):
-        print("  ★ = youtube music catalog track")
-
-
-def _choose(results: list[Result], auto: bool = False) -> Result | None:
-    if len(results) == 1:
-        only = results[0]
-        print(f"only match: {_fit(only.title, 60)}  ({_fit(only.channel, 24)})")
-        return only
-
-    if auto:
-        top = results[0]
-        print(f"top hit: {_fit(top.title, 60)}  ({_fit(top.channel, 24)})")
-        return top
-
-    _show(results)
-    while True:
-        try:
-            raw = input(f"select [1-{len(results)}, enter=1, q=quit]: ").strip().lower()
-        except EOFError:
-            return None
-        if raw in {"q", "quit"}:
-            return None
-        picked = 1 if not raw else int(raw) if raw.isdigit() else 0
-        if 1 <= picked <= len(results):
-            if not sys.stdin.isatty():
-                print()
-            return results[picked - 1]
-        print(f"  not a choice: {raw!r}")
 
 
 # --- the dest subcommand ---------------------------------------------------
@@ -243,7 +157,8 @@ def cmd_dest(args: list[str]) -> int:
 # --- the main flow ---------------------------------------------------------
 
 def _is_url(text: str) -> bool:
-    return text.startswith("http://") or text.startswith("https://")
+    parsed = urlsplit(text)
+    return parsed.scheme in {"http", "https"} and bool(parsed.hostname)
 
 
 def _resolve_target(opts: Options) -> tuple[str, str]:
@@ -255,30 +170,16 @@ def _resolve_target(opts: Options) -> tuple[str, str]:
 
 
 def run(opts: Options) -> int:
-    query = " ".join(opts.rest).strip()
-    if not query:
-        raise UsageError("nothing to search for")
+    if len(opts.rest) != 1 or not _is_url(opts.rest[0]):
+        raise UsageError("provide one HTTP or HTTPS URL")
 
     target, template = _resolve_target(opts)
-
-    if _is_url(query):
-        info = detail(query)
-        if not info:
-            print(f"ytmp3: could not read {query}", file=sys.stderr)
-            return 1
-        chosen_url = query
-        fields = fields_for(info, opts.name)
-    else:
-        results = search(query, limit=opts.limit, music_only=not opts.any)
-        if not results:
-            print(f"ytmp3: no music results for {query!r}", file=sys.stderr)
-            print("try --any to include non-music results", file=sys.stderr)
-            return 1
-        picked = _choose(results, auto=opts.yes)
-        if picked is None:
-            return 130
-        chosen_url = picked.url
-        fields = fields_for(picked.info(), opts.name)
+    chosen_url = opts.rest[0]
+    info = detail(chosen_url)
+    if not info:
+        print(f"ytmp3: could not read {chosen_url}", file=sys.stderr)
+        return 1
+    fields = fields_for(info, opts.name)
 
     filename = render(template, fields)
     print(f"→ {filename}")
@@ -311,6 +212,9 @@ def main(argv: list[str] | None = None) -> int:
     if not argv:
         sys.stdout.write(helptext.short_help())
         return 0
+    if argv[0] == "app":
+        from .app import main as app_main
+        return app_main(argv[1:])
 
     try:
         opts = parse(argv)

@@ -1,3 +1,3 @@
-"""Search YouTube for a track and save it as MP3."""
+"""Save audio from a supplied URL and play a personal MP3 library."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

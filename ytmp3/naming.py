@@ -1,4 +1,4 @@
-"""Turn a YouTube result into a clean track title and a filename."""
+"""Turn yt-dlp metadata into a clean title and filename."""
 
 import re
 
@@ -41,7 +41,7 @@ def _is_junk(inner: str) -> bool:
 
 
 def clean_title(raw: str, artist: str | None = None) -> str:
-    """Strip upload cruft from a video title to get at the song name."""
+    """Strip common upload markers from a media title."""
     title = raw.strip()
 
     # Leading tags such as "[MV] " or "[Official Video] ".

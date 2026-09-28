@@ -1,0 +1,13 @@
+# VLC audio features used as a reference
+
+Reviewed VLC for Android 3.5 documentation and current Android playback guidance on 2026-09-28. This is an MP3 app, not a VLC clone.
+
+| Area | VLC reference | ytmp3 now | Next useful step |
+| --- | --- | --- | --- |
+| Playlists | Save a track to a new or existing playlist; edit the play queue. [VLC audio player](https://docs.videolan.me/vlc-user/android/3.5/en/audio/audio_player.html) | Create, rename, delete, add tracks, reorder, remove, play, append to queue; save queue as playlist. Stored locally per device/browser. | Playlist export/import so a reinstall or browser reset does not erase collections. |
+| Media folders | Choose included folders and rescan at startup. [VLC general settings](https://docs.videolan.me/vlc-user/android/3.5/en/more/settings/general_settings.html) | Android uses the system folder picker with persistent read access, scans MP3s in subfolders, rescans on app load or by button. PC accepts repeatable `--include` paths. | PC folder picker and background indexing for very large libraries. |
+| Background audio | Notification and lock-screen playback controls. [VLC audio player](https://docs.videolan.me/vlc-user/android/3.5/en/audio/audio_player.html) | Android Media3 session service with notification, headset/audio focus handling, and screen-off playback. [Android background playback](https://developer.android.com/media/media3/session/background-playback) | Resume the last track after a process restart. |
+| Player | Seek, previous/next, shuffle, repeat, speed, sleep timer, equalizer, A-B loop. [VLC audio player](https://docs.videolan.me/vlc-user/android/3.5/en/audio/audio_player.html) | Seek, previous/next, shuffle, repeat, speed, volume. | Sleep timer, then equalizer and A-B loop if users need them. |
+| Interface/audio settings | Theme and folder selection; saved playback speed and headset behavior. [VLC interface](https://docs.videolan.me/vlc-user/android/3.5/en/getting_started/interface/standard_interface.html), [VLC audio settings](https://docs.videolan.me/vlc-android-user/more/settings/extra_audio.html) | Device/light/dark theme, compact rows, default playback speed. Media3 handles noisy output and audio focus on Android. | Track metadata and artwork, accessibility review, then history and sorting. |
+
+Android's folder picker grants access only to selected trees; the app does not request broad storage access. [Android Storage Access Framework](https://developer.android.com/training/data-storage/shared/documents-files). The current Android scanner has a 10,000-entry limit per full library scan and runs when the library is refreshed; a paged index is the upgrade path.

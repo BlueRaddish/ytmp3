@@ -9,36 +9,32 @@ from . import __version__
 REPO = "https://github.com/BlueRaddish/ytmp3"
 
 USAGE_LINES = (
-    "ytmp3 [options] QUERY...",
     "ytmp3 [options] URL",
+    "ytmp3 app [--host HOST] [--port PORT] [--library DIR]",
     "ytmp3 dest {list|add|remove|default} [ARGS...]",
     "ytmp3 {-h|--help|-V|--version}",
 )
 
 DESCRIPTION = (
-    "Searches YouTube for QUERY, keeps the hits YouTube classifies as Music,",
-    "and lists them most-viewed first so you can pick one. The choice is",
-    "downloaded, converted to MP3 with cover art and tags, and filed at a",
-    "destination -- a local directory or any rclone remote -- under a name",
-    "built from a template.",
+    "Takes a URL you supply and uses yt-dlp to save its audio as MP3,",
+    "with metadata and cover art when available. Files go to a local",
+    "directory or an rclone remote. The app command starts a personal",
+    "browser-based library and player for desktop and Android.",
 )
 
 EXAMPLES = (
-    ("search, pick from the list, save to the default destination",
-     "ytmp3 high hopes"),
-    ("take the most-viewed result without prompting",
-     "ytmp3 -y heartbreak anniversary"),
-    ("save into a destination defined in the config",
-     "ytmp3 -d music more than words"),
-    ("save into a local directory this once",
-     "ytmp3 -o ~/Music serenade"),
-    ("save straight to an rclone remote with a custom name",
-     "ytmp3 -o gdrive:media/music -t '[Music] {title}.mp3' babydoll"),
-    ("skip the search when you already have the URL",
-     "ytmp3 https://www.youtube.com/watch?v=IPXIgEAGe4U"),
+    ("start the personal library and player",
+     "ytmp3 app"),
+    ("save from a URL to the default destination",
+     "ytmp3 https://example.org/recording"),
+    ("save from a URL into a local directory",
+     "ytmp3 -o ~/Music https://example.org/recording"),
+    ("use a configured destination",
+     "ytmp3 -d archive https://example.org/recording"),
 )
 
 COMMANDS = (
+    ("app", "start the personal library and player"),
     ("dest list", "show configured destinations"),
     ("dest add NAME TARGET", "add a destination, local path or rclone remote:path"),
     ("dest remove NAME", "delete a destination"),
@@ -50,9 +46,6 @@ OPTIONS = (
     ("-o, --out TARGET", "save into an ad-hoc target, overriding -d"),
     ("-t, --template TPL", "filename template, overriding the destination's"),
     ("-n, --name TITLE", "set {title} explicitly instead of detecting it"),
-    ("-l, --limit N", "how many results to offer (default: 10)"),
-    ("-y, --yes", "take the most-viewed result without prompting"),
-    ("    --any", "offer results outside the Music category too"),
     ("    --force", "overwrite a file already present at the destination"),
     ("    --dry-run", "print what would happen, download nothing"),
     ("-v, --verbose", "show yt-dlp and rclone output"),
@@ -61,8 +54,7 @@ OPTIONS = (
 )
 
 ARGUMENTS = (
-    ("QUERY", "words to search for, joined with spaces"),
-    ("URL", "a YouTube video URL, used instead of searching"),
+    ("URL", "one HTTP or HTTPS source URL supplied by you"),
     ("TARGET", "a local directory, or an rclone REMOTE:PATH"),
     ("TPL", "template over {title} {artist} {album} {year} {id}"),
 )
@@ -77,10 +69,10 @@ FILES = (
 )
 
 EXIT_STATUS = (
-    ("0", "a track was downloaded and filed"),
+    ("0", "the operation completed"),
     ("1", "the operation failed"),
     ("2", "the command line was wrong"),
-    ("130", "interrupted at the prompt"),
+    ("130", "interrupted"),
 )
 
 SEE_ALSO = ("yt-dlp(1)", "rclone(1)", REPO)
@@ -103,7 +95,7 @@ def _section(name: str, body: list[str]) -> list[str]:
 
 def full_help() -> str:
     out: list[str] = []
-    out += _section("NAME", ["  ytmp3 - search youtube for a track and save it as mp3"])
+    out += _section("NAME", ["  ytmp3 - save audio from a URL and play your MP3 library"])
     out += _section("USAGE", [f"  {line}" for line in USAGE_LINES])
     out += _section("DESCRIPTION", [f"  {line}" for line in DESCRIPTION])
 
@@ -126,11 +118,11 @@ def full_help() -> str:
 
 def short_help() -> str:
     quick = (
-        ("ytmp3 high hopes", "search, pick, save to the default destination"),
-        ("ytmp3 -y -d music karma", "top hit, straight into the 'music' destination"),
+        ("ytmp3 app", "open the personal library and player"),
+        ("ytmp3 -o ~/Music URL", "save a URL as MP3"),
     )
     lines = [
-        "ytmp3 - search youtube for a track and save it as mp3",
+        "ytmp3 - save audio from a URL and play your MP3 library",
         "",
         "usage:",
         *[f"  {line}" for line in USAGE_LINES[:2]],

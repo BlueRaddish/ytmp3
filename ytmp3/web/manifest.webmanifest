@@ -1,0 +1,20 @@
+{
+  "name": "ytmp3 · personal audio",
+  "short_name": "ytmp3",
+  "description": "A personal MP3 player and yt-dlp URL downloader.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#101b1c",
+  "theme_color": "#101b1c",
+  "icons": [
+    {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ],
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {"title": "title", "text": "text", "url": "url"}
+  }
+}

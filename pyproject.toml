@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ytmp3"
-version = "0.1.0"
-description = "Search YouTube for a track and save it as MP3, locally or to an rclone remote"
+version = "0.2.0"
+description = "yt-dlp URL-to-MP3 wrapper and personal media player"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "BlueRaddish" }]
-keywords = ["youtube", "yt-dlp", "mp3", "music", "rclone"]
+keywords = ["yt-dlp", "mp3", "media-player", "rclone"]
 classifiers = [
   "Environment :: Console",
   "License :: OSI Approved :: MIT License",
@@ -28,6 +28,9 @@ ytmp3 = "ytmp3.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["ytmp3*"]
+
+[tool.setuptools.package-data]
+ytmp3 = ["web/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

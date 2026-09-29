@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="ytmp3 record mark">
+  <rect width="512" height="512" fill="#101819"/>
+  <rect x="32" y="32" width="448" height="448" rx="100" fill="#70d7b4"/>
+  <circle cx="256" cy="256" r="160" fill="#102822"/>
+  <circle cx="256" cy="256" r="122" fill="none" stroke="#70d7b4" stroke-width="10" opacity=".65"/>
+  <circle cx="256" cy="256" r="92" fill="none" stroke="#70d7b4" stroke-width="10" opacity=".65"/>
+  <path d="M225 203c0-10 11-15 19-10l88 54c8 5 8 13 0 18l-88 54c-8 5-19 0-19-10z" fill="#70d7b4"/>
+</svg>

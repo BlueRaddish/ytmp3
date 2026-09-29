@@ -120,11 +120,30 @@ with tempfile.TemporaryDirectory() as temp:
             assert page.locator('.nav-item').count() == 4
             page.locator("#expand-player").click()
             assert page.locator("#player-queue").is_visible()
+            assert page.locator("#player").get_attribute("data-panel") == "queue"
             assert page.locator("#queue-mix .action-icon").count() == 1
             assert page.locator("#queue-loop .action-icon").count() == 1
             assert page.locator("#queue-list .drag-handle").count() == 2
+            assert page.locator("#queue-list .drag-handle").first.inner_text() == "⠿"
+            bounds = page.locator("#queue-list").bounding_box()
+            assert bounds["x"] == 0 and bounds["width"] == 390
+            banner_y = page.locator("#expand-player").bounding_box()["y"]
+            page.locator("#queue-list").evaluate("e => { const spacer = document.createElement('div'); spacer.id = 'scroll-check'; spacer.style.height = '1200px'; e.append(spacer); e.scrollTop = 300; }")
+            assert page.locator("#queue-list").evaluate("e => e.scrollTop") > 0
+            assert page.locator("#expand-player").bounding_box()["y"] == banner_y
+            page.locator("#scroll-check").evaluate("e => e.remove()")
+            page.locator("#queue-list").evaluate("e => e.scrollTop = 0")
             page.screenshot(path=str(root / "queue.png"), full_page=True)
             shutil.copy2(root / "queue.png", Path(tempfile.gettempdir()) / "ytmp3-queue-check.png")
+            page.locator("#expand-player").click()
+            assert page.locator("#player").get_attribute("data-panel") == "song"
+            assert not page.locator("#player-queue").is_visible()
+            assert page.locator(".player-art").bounding_box()["width"] > 200
+            assert page.locator("#close-player").is_visible()
+            page.screenshot(path=str(root / "song.png"), full_page=True)
+            shutil.copy2(root / "song.png", Path(tempfile.gettempdir()) / "ytmp3-song-check.png")
+            page.locator("#back-to-queue").click()
+            assert page.locator("#player-queue").is_visible()
             page.locator("#queue-list .drag-handle").first.focus()
             page.keyboard.press("ArrowDown")
             after = page.evaluate("JSON.parse(localStorage.ytmp3_queue)")
@@ -144,8 +163,13 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator("#save-queue").click()
             page.locator("#queue-name").fill("Test queue")
             page.locator("#save-queue-form button[type=submit]").click()
-            page.locator("#close-player").click()
+            page.locator("#queue-list").dispatch_event("wheel", {"deltaY": -120})
+            assert page.locator("#player").get_attribute("data-panel") == "song"
+            page.wait_for_timeout(650)
+            page.locator("#player").dispatch_event("wheel", {"deltaY": -120})
+            page.wait_for_function("!document.body.classList.contains('player-open')")
             page.locator('.nav-item[data-view="playlists"]').click()
+            assert page.locator('.nav-item[data-view="playlists"] .nav-list-icon').count() == 1
             assert page.locator(".playlist-card").count() == 1
             assert page.locator("#new-playlist .action-icon").count() == 1
             assert page.locator("#playlist-play .action-icon").count() == 1
@@ -156,6 +180,7 @@ with tempfile.TemporaryDirectory() as temp:
             page.screenshot(path=str(root / "playlists.png"), full_page=True)
             shutil.copy2(root / "playlists.png", Path(tempfile.gettempdir()) / "ytmp3-playlists-check.png")
             page.locator('.nav-item[data-view="more"]').click()
+            page.locator("#check-update").wait_for(state="visible")
             assert page.locator("#hidden-tracks").count() == 0
             assert page.locator("#check-update .action-icon").count() == 1
             assert page.locator("#check-update").bounding_box()["y"] < page.locator("#player").bounding_box()["y"]
@@ -175,6 +200,20 @@ with tempfile.TemporaryDirectory() as temp:
             assert desktop.locator("#player-queue").is_visible()
             assert desktop.locator("#queue-options").is_visible()
             desktop.close()
+            tablet = browser.new_page(viewport={"width": 768, "height": 900})
+            tablet.goto(f"http://127.0.0.1:{server.server_port}/?key={server.key}")
+            tablet.locator("#track-list .track-row").first.wait_for()
+            tablet.locator("#theme-button").click()
+            assert tablet.locator("html").get_attribute("data-theme") == "light"
+            tablet.locator("#play-selection").click()
+            tablet.locator("#expand-player").click()
+            assert tablet.locator("#queue-list").bounding_box()["width"] <= 768
+            tablet.screenshot(path=str(root / "tablet-queue.png"), full_page=True)
+            shutil.copy2(root / "tablet-queue.png", Path(tempfile.gettempdir()) / "ytmp3-tablet-queue-check.png")
+            tablet.locator("#expand-player").click()
+            tablet.screenshot(path=str(root / "tablet-song.png"), full_page=True)
+            shutil.copy2(root / "tablet-song.png", Path(tempfile.gettempdir()) / "ytmp3-tablet-song-check.png")
+            tablet.close()
             shared = browser.new_page(viewport={"width": 390, "height": 844})
             shared.goto(f"http://127.0.0.1:{server.server_port}/?key={server.key}")
             shared.goto(f"http://127.0.0.1:{server.server_port}/?url=https%3A%2F%2Fexample.org%2Ftone")

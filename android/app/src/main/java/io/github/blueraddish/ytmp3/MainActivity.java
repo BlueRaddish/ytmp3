@@ -79,6 +79,7 @@ public final class MainActivity extends Activity {
         getWindow().setNavigationBarColor(Color.rgb(16, 27, 28));
         library = new AndroidLibrary(this);
         web = new WebView(this);
+        web.clearCache(true);
         web.setBackgroundColor(Color.rgb(16, 27, 28));
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -129,7 +130,14 @@ public final class MainActivity extends Activity {
                         asset = "licenses/youtubedl-android-GPL-3.0.txt"; type = "text/plain"; break;
                     default: return response(404, "text/plain", "Not found");
                 }
-                try { return new WebResourceResponse(type, type.startsWith("image/") ? null : "UTF-8", getAssets().open(asset)); }
+                try {
+                    WebResourceResponse result = new WebResourceResponse(type,
+                        type.startsWith("image/") ? null : "UTF-8", getAssets().open(asset));
+                    Map<String, String> headers = new HashMap<>();
+                    headers.put("Cache-Control", "no-store");
+                    result.setResponseHeaders(headers);
+                    return result;
+                }
                 catch (IOException error) { return response(500, "text/plain", "Could not load app asset"); }
             }
         });

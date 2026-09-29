@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="ytmp3 list and play mark">
+  <rect width="512" height="512" fill="#101819"/>
+  <rect x="32" y="32" width="448" height="448" rx="100" fill="#70d7b4"/>
+  <g fill="none" stroke="#102822" stroke-width="32" stroke-linecap="round">
+    <path d="M122 178h112"/>
+    <path d="M122 256h112"/>
+    <path d="M122 334h112"/>
+  </g>
+  <path d="M266 145c0-14 16-22 28-13l121 108c11 9 11 23 0 32L294 380c-12 9-28 1-28-13z" fill="#102822"/>
+</svg>

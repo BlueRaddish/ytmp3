@@ -236,7 +236,9 @@ function setView(view, push = true) {
 addEventListener("popstate", () => {
   state.playerOpen = false;
   document.body.classList.remove("player-open");
+  $("#player").dataset.panel = "queue";
   $("#expand-player").setAttribute("aria-expanded", "false");
+  $("#expand-player").setAttribute("aria-label", "Open player");
   setView(routeView(location.hash), false);
 });
 document.querySelectorAll(".nav-item").forEach((button) =>
@@ -534,12 +536,11 @@ function reorderPlaylist(list, from, to) {
   persistLists(); renderPlaylists();
 }
 
-function dragHandle(row, index, onDrop, label, numbered = false) {
+function dragHandle(row, index, onDrop, label) {
   const handle = document.createElement("button");
   handle.type = "button";
   handle.className = "drag-handle";
-  handle.textContent = numbered ? String(index + 1) : "⠿";
-  if (numbered) handle.classList.add("numbered");
+  handle.textContent = "⠿";
   handle.setAttribute("aria-label", `Drag to reorder ${label}; arrow keys also work`);
   let pointer = null;
   let target = index;
@@ -610,8 +611,9 @@ function trackMenu(track, context, index, list) {
   menu.addEventListener("toggle", () => {
     if (!menu.open) return;
     const rect = summary.getBoundingClientRect();
-    const below = (state.playerOpen ? innerHeight - 16 : $("#player").getBoundingClientRect().top) - rect.bottom;
-    const above = rect.top - (state.playerOpen ? 16 : document.querySelector(".topbar").getBoundingClientRect().bottom);
+    const bounds = context === "queue" && state.playerOpen ? $("#queue-list").getBoundingClientRect() : null;
+    const below = (bounds ? bounds.bottom : state.playerOpen ? innerHeight - 16 : $("#player").getBoundingClientRect().top) - rect.bottom;
+    const above = rect.top - (bounds ? bounds.top : state.playerOpen ? 16 : document.querySelector(".topbar").getBoundingClientRect().bottom);
     const height = Math.min(options.scrollHeight, 440, innerHeight * .62);
     const width = Math.min(220, innerWidth - 32);
     menu.classList.toggle("align-left", rect.right - width < 8 && rect.left + width <= innerWidth - 8);
@@ -688,7 +690,7 @@ function trackRow(track, context = "library", index = -1, list = null) {
     row.classList.add("reorderable");
     row.dataset.reorderIndex = String(index);
     row.append(dragHandle(row, index, context === "queue"
-      ? reorderQueue : (from, to) => reorderPlaylist(list, from, to), titleOf(track), context === "queue"));
+      ? reorderQueue : (from, to) => reorderPlaylist(list, from, to), titleOf(track)));
   } else if (state.selectionMode) {
     row.classList.add("selectable");
     const check = document.createElement("input");
@@ -1336,15 +1338,68 @@ function openPlayer() {
   if (state.playerOpen) return;
   state.playerOpen = true;
   document.body.classList.add("player-open");
-  $("#expand-player").setAttribute("aria-expanded", "true");
+  setPlayerPanel("queue");
+  $("#queue-list").scrollTop = 0;
   history.pushState({ view: state.view, player: true }, "", "#player");
   $("#close-player").focus();
+}
+function setPlayerPanel(panel) {
+  $("#player").dataset.panel = panel;
+  $("#expand-player").setAttribute("aria-expanded", String(panel === "song"));
+  $("#expand-player").setAttribute("aria-label", panel === "song" ? "Back to queue" : "Open song view");
+  $("#back-to-queue").hidden = panel !== "song";
 }
 function closePlayer() {
   if (state.playerOpen) history.back();
 }
-$("#expand-player").addEventListener("click", openPlayer);
+$("#expand-player").addEventListener("click", () => {
+  if (!state.playerOpen) openPlayer();
+  else setPlayerPanel($("#player").dataset.panel === "queue" ? "song" : "queue");
+});
+$("#back-to-queue").addEventListener("click", () => setPlayerPanel("queue"));
 $("#close-player").addEventListener("click", closePlayer);
+let pullDistance = 0;
+let pullTime = 0;
+let pullCooldown = 0;
+$("#player").addEventListener("wheel", (event) => {
+  if (!state.playerOpen || event.deltaY >= 0 || event.target.closest("input, .drag-handle, .tile-menu")) return;
+  const panel = $("#player").dataset.panel;
+  if (panel === "queue" && (!event.target.closest("#queue-list") || $("#queue-list").scrollTop > 0)) return;
+  const now = Date.now();
+  if (now < pullCooldown) return;
+  if (now - pullTime > 450) pullDistance = 0;
+  pullTime = now;
+  pullDistance += -event.deltaY;
+  if (pullDistance < 90) return;
+  pullDistance = 0;
+  pullCooldown = now + 600;
+  if (panel === "queue") setPlayerPanel("song");
+  else closePlayer();
+}, { passive: true });
+let touchStart = null;
+$("#player").addEventListener("touchstart", (event) => {
+  touchStart = null;
+  if (!state.playerOpen || event.touches.length !== 1 ||
+      event.target.closest("input, .drag-handle, .tile-menu, button:not(#expand-player)")) return;
+  const panel = $("#player").dataset.panel;
+  const list = $("#queue-list");
+  if (panel === "queue" && !event.target.closest("#expand-player") &&
+      (!event.target.closest("#queue-list") || list.scrollTop > 0)) return;
+  touchStart = { y: event.touches[0].clientY, panel, banner: !!event.target.closest("#expand-player") };
+}, { passive: true });
+$("#player").addEventListener("touchend", (event) => {
+  if (!touchStart || event.changedTouches.length !== 1) return;
+  const { y, panel, banner } = touchStart;
+  touchStart = null;
+  const distance = event.changedTouches[0].clientY - y;
+  if (panel === "queue" && ((banner && distance < -80) || (!banner && distance > 90 && $("#queue-list").scrollTop === 0))) {
+    event.preventDefault();
+    setPlayerPanel("song");
+  } else if (panel === "song" && Math.abs(distance) > 100) {
+    event.preventDefault();
+    closePlayer();
+  }
+}, { passive: false });
 $("#play").addEventListener("click", togglePlay);
 $("#previous").addEventListener("click", () => move(-1));
 $("#next").addEventListener("click", () => move(1));

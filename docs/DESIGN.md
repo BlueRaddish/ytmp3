@@ -10,13 +10,22 @@ interface is a yt-dlp wrapper and player; source credit remains visible.
 
 Put the task content and the controls used with it at the top of each screen.
 The phone's visible area is scarce: count how many tracks are visible before
-adding headers, cards, forms, or explanatory text. Do not repeat the page title
-inside its content when the navigation bar already names it. Keep secondary
-actions in a short menu or dialog. Explain a feature when it is first needed,
-or in optional onboarding, instead of leaving a permanent introduction above
-the user's music. Apply this rule to new screens and other apps in this project.
+adding headers, cards, forms, or explanatory text. Keep a persistent element
+only if it helps the user act, decide, read current state, or navigate. Do not
+repeat the page title inside its content when the navigation bar already names
+it. Keep secondary actions in a short menu or dialog. Explain a feature when it
+is first needed,
+or in one-time onboarding, optional help, a separate website, or GitHub docs
+instead of leaving a permanent introduction above the user's music. Apply
+this rule to new screens and other projects.
 Use symbols for repeated page actions, with a 44 px touch target, a screen-reader
 name, and a desktop tooltip. Keep explicit text in confirmation dialogs and menus.
+In the expanded player, keep the current track fixed above an independently
+scrolling, edge-to-edge queue. The current-track banner opens a focused song
+view with large cover art and playback controls. Pull beyond the queue's top
+to reach that view; a further vertical swipe leaves the player. Preserve Back
+and Close buttons for precise navigation. Queue and playlist rows use a grip
+instead of visible position numbers.
 
 References:
 
@@ -64,7 +73,10 @@ the same interface, but requires a separate on-device check.
 - [Phone audio](shots/phone-browser.png): 390 px viewport, populated library.
 - [Phone browse](shots/phone-browse.png): 390 px viewport, shared link and folders.
 - [Phone playlists](shots/phone-playlists.png): 390 px viewport, playlist controls.
-- [Phone player](shots/phone-player-browser.png): 390 px viewport, expanded player.
+- [Phone queue](shots/phone-player-browser.png): 390 px viewport, fixed current track and full-width queue.
+- [Phone song](shots/phone-song-browser.png): 390 px viewport, large cover and transport controls.
+- [Tablet queue, light](shots/tablet-queue-light.png): 768 px viewport, light theme.
+- [Logo concepts](shots/logo-concepts.png): three candidates at launcher and navigation sizes.
 
 ## Android device check
 

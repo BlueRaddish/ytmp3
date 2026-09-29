@@ -1,5 +1,5 @@
 {
-  "version": "0.6.3",
-  "android_apk_url": "https://drive.google.com/open?id=1vZJ2aSqEzfjI2dA9OJel54h8Z8iQPiMN",
-  "notes": "Fixed Now Playing banner and full-width scrolling queue, large-cover song view, playlist icon, and new app logo."
+  "version": "0.6.4",
+  "android_apk_url": "https://drive.google.com/open?id=1lgWX7W5xaN_-Ohi7W7BHLsEYi-lvUQ-7",
+  "notes": "Browse all accessible media with folder and filename filters. Link previews show yt-dlp metadata when available."
 }

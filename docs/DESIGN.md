@@ -15,6 +15,8 @@ inside its content when the navigation bar already names it. Keep secondary
 actions in a short menu or dialog. Explain a feature when it is first needed,
 or in optional onboarding, instead of leaving a permanent introduction above
 the user's music. Apply this rule to new screens and other apps in this project.
+Use symbols for repeated page actions, with a 44 px touch target, a screen-reader
+name, and a desktop tooltip. Keep explicit text in confirmation dialogs and menus.
 
 References:
 
@@ -59,7 +61,9 @@ These captures are from the responsive PC browser app. The Android shell uses
 the same interface, but requires a separate on-device check.
 
 - [Desktop library](shots/desktop.png): 1440 px viewport, populated library.
-- [Phone library](shots/phone-browser.png): 390 px viewport, populated library.
+- [Phone audio](shots/phone-browser.png): 390 px viewport, populated library.
+- [Phone browse](shots/phone-browse.png): 390 px viewport, shared link and folders.
+- [Phone playlists](shots/phone-playlists.png): 390 px viewport, playlist controls.
 - [Phone player](shots/phone-player-browser.png): 390 px viewport, expanded player.
 
 ## Android device check

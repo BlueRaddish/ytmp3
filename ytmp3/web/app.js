@@ -2,6 +2,34 @@ const $ = (selector) => document.querySelector(selector);
 const main = $("#main");
 const audio = $("#audio");
 const native = window.Ytmp3Android || null;
+const iconPaths = {
+  play: '<path d="m8 5 11 7-11 7z" fill="currentColor" stroke="none"/>',
+  mix: '<path d="M3 7h3c4 0 8 10 12 10h3M3 17h3c4 0 8-10 12-10h3M18 4l3 3-3 3M18 14l3 3-3 3"/>',
+  loop: '<path d="M4 10V7a3 3 0 0 1 3-3h11l-3-3M18 4l-3 3M20 14v3a3 3 0 0 1-3 3H6l3 3M6 20l3-3"/>',
+  download: '<path d="M12 3v12m-4-4 4 4 4-4M4 18v2h16v-2"/>',
+  add: '<path d="M12 4v16M4 12h16"/>',
+  select: '<rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="m8 12 3 3 5-6"/>',
+  all: '<rect x="5" y="5" width="16" height="16" rx="2"/><path d="M2 16V5a3 3 0 0 1 3-3h11m-7 11 3 3 5-6"/>',
+  queue: '<path d="M3 6h13M3 12h13M3 18h10M19 15v6m-3-3h6"/>',
+  playlist: '<path d="M5 6h10M5 10h10m-9 7a2 2 0 1 0 2 2V13l7-2v4m4-4v8m-4-4h8"/>',
+  star: '<path d="m12 2 3 6.5 7 .9-5.1 5 1.2 7-6.1-3.3-6.1 3.3 1.2-7L2 9.4l7-.9z"/>',
+  share: '<path d="M12 15V3m-4 4 4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
+  remove: '<circle cx="12" cy="12" r="9"/><path d="M7 12h10"/>',
+  done: '<path d="m4 12 5 5L20 6"/>',
+  edit: '<path d="m4 20 4-.8L20 7.2 16.8 4 4.8 16zM14.5 6.3l3.2 3.2"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-2.3 6.7M20 4v7h-7"/>'
+};
+function icon(name) {
+  return `<svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${iconPaths[name]}</svg>`;
+}
+function iconize(root) {
+  root.querySelectorAll("[data-icon]").forEach((button) => {
+    if (!iconPaths[button.dataset.icon] || button.dataset.iconReady) return;
+    button.innerHTML = icon(button.dataset.icon);
+    button.dataset.iconReady = "true";
+  });
+}
+iconize(document);
 function stored(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
   catch { return fallback; }
@@ -227,6 +255,7 @@ function render() {
   else renderMore();
   updatePlayer();
   renderQueue();
+  iconize(main);
 }
 
 function renderBrowse() {
@@ -235,7 +264,7 @@ function renderBrowse() {
       <form id="url-form"><label id="add-heading" for="url-input">Add from link</label>
         <div class="url-form"><input id="url-input" class="url-input" type="url" required
           inputmode="url" autocomplete="url" placeholder="Track or playlist URL"
-          aria-describedby="url-note"><button class="primary-button" type="submit">Save MP3</button></div>
+          aria-describedby="url-note"><button class="primary-button symbol-button" data-icon="download" type="submit" aria-label="Save MP3 from link" title="Save MP3">Save MP3</button></div>
         <p class="form-note" id="url-note">Powered by yt-dlp · up to 100 playlist items · save content you may copy.</p>
       </form><div id="job-container"></div>
     </section>
@@ -274,7 +303,8 @@ function renderBrowse() {
     const label = document.createElement("button"); label.className = "folder-name";
     label.textContent = `${name} · ${counts.get(id) || 0}`;
     label.addEventListener("click", () => { state.folder = id; state.visibleLimit = 100; setView("audio"); });
-    const mix = document.createElement("button"); mix.className = "row-button"; mix.textContent = "Mix";
+    const mix = document.createElement("button"); mix.className = "row-button symbol-button";
+    mix.innerHTML = icon("mix"); mix.title = `Mix ${name}`;
     mix.setAttribute("aria-label", `Mix ${name}`);
     mix.addEventListener("click", () => playCollection(tracks.filter((track) => inFolder(track, id))
       .map((track) => track.id), true));
@@ -292,28 +322,28 @@ function renderAudio() {
         <option value="artist">Artist A–Z</option><option value="album">Album A–Z</option>
         <option value="duration">Shortest first</option><option value="oldest">Oldest first</option>
       </select>
-      <button class="row-button" id="play-selection" type="button">Play</button>
-      <button class="row-button" id="mix-selection" type="button">Mix</button>
-      <button class="row-button" id="favorites-filter" type="button" aria-label="Favorites only" title="Favorites" aria-pressed="false">☆</button>
+      <button class="row-button symbol-button" id="play-selection" data-icon="play" type="button" aria-label="Play visible tracks" title="Play">Play</button>
+      <button class="row-button symbol-button" id="mix-selection" data-icon="mix" type="button" aria-label="Mix visible tracks" title="Mix">Mix</button>
+      <button class="row-button symbol-button" id="favorites-filter" data-icon="star" type="button" aria-label="Favorites only" title="Favorites" aria-pressed="false">☆</button>
       <div id="layout-mode" class="layout-switch" role="group" aria-label="Library layout">
         <span class="layout-thumb" aria-hidden="true"></span>
         <button type="button" data-layout="compact" aria-label="Compact view" title="Compact view">☷</button>
         <button type="button" data-layout="list" aria-label="List view" title="List view">≡</button>
         <button type="button" data-layout="tiles" aria-label="Tile view" title="Tile view">▦</button>
       </div>
-      <button class="row-button" id="select-mode" type="button" aria-pressed="false">Select</button>
+      <button class="row-button symbol-button" id="select-mode" data-icon="select" type="button" aria-label="Select tracks" title="Select tracks" aria-pressed="false">Select</button>
     </div>
     <p class="result-count" id="library-count"></p>
     <div id="selection-bar" class="selection-bar" hidden><strong id="selected-count"></strong>
-      <button class="row-button" id="select-all" type="button">Select visible</button>
-      <button class="row-button" id="selected-play" type="button">Play</button>
-      <button class="row-button" id="selected-mix" type="button">Mix</button>
-      <button class="row-button" id="selected-queue" type="button">Queue</button>
-      <button class="row-button" id="selected-playlist" type="button">Playlist</button>
-      <button class="row-button" id="selected-favorite" type="button">Favorite</button>
-      <button class="row-button" id="selected-share" type="button" ${native ? "" : "hidden"}>Share</button>
-      <button class="row-button" id="selected-hide" type="button">Remove</button>
-      <button class="row-button" id="clear-selection" type="button">Done</button>
+      <button class="row-button symbol-button" id="select-all" data-icon="all" type="button" aria-label="Select all visible tracks" title="Select all visible">Select visible</button>
+      <button class="row-button symbol-button" id="selected-play" data-icon="play" type="button" aria-label="Play selected tracks" title="Play selected">Play</button>
+      <button class="row-button symbol-button" id="selected-mix" data-icon="mix" type="button" aria-label="Mix selected tracks" title="Mix selected">Mix</button>
+      <button class="row-button symbol-button" id="selected-queue" data-icon="queue" type="button" aria-label="Add selected tracks to queue" title="Add to queue">Queue</button>
+      <button class="row-button symbol-button" id="selected-playlist" data-icon="playlist" type="button" aria-label="Add selected tracks to playlist" title="Add to playlist">Playlist</button>
+      <button class="row-button symbol-button" id="selected-favorite" data-icon="star" type="button" aria-label="Favorite selected tracks" title="Favorite">Favorite</button>
+      <button class="row-button symbol-button" id="selected-share" data-icon="share" type="button" aria-label="Share selected tracks" title="Share" ${native ? "" : "hidden"}>Share</button>
+      <button class="row-button symbol-button" id="selected-hide" data-icon="remove" type="button" aria-label="Remove selected tracks from Audio" title="Remove from Audio">Remove</button>
+      <button class="row-button symbol-button" id="clear-selection" data-icon="done" type="button" aria-label="Finish selecting" title="Done">Done</button>
     </div>
     <div id="track-list" class="track-list"></div>
   </div>`;
@@ -818,10 +848,11 @@ $("#playlist-picker").addEventListener("submit", (event) => {
 
 function renderPlaylists() {
   main.innerHTML = `<div class="content"><div class="section-head compact-head">
-    <div class="section-actions"><button class="row-button" id="new-playlist" type="button">New</button>
-      <button class="row-button" id="import-playlist" type="button">Import M3U</button></div></div>
+    <div class="section-actions"><button class="row-button symbol-button" id="new-playlist" data-icon="add" type="button" aria-label="New playlist" title="New playlist">New</button>
+      <button class="row-button symbol-button" id="import-playlist" data-icon="download" type="button" aria-label="Import M3U playlist" title="Import M3U">Import M3U</button></div></div>
       <input id="playlist-file" type="file" accept=".m3u,.m3u8" hidden>
     <div id="playlist-list" class="playlist-list"></div><div id="playlist-detail"></div></div>`;
+  iconize(main);
   $("#new-playlist").addEventListener("click", () => {
     $("#create-playlist-dialog").showModal();
     $("#new-playlist-name").focus();
@@ -846,15 +877,16 @@ function renderPlaylists() {
   state.selectedPlaylist = selected.id;
   const detail = $("#playlist-detail");
   detail.innerHTML = `<div class="section-head"><div><h2 id="selected-name"></h2><p id="selected-count"></p></div>
-    <div class="section-actions"><button class="row-button" id="playlist-play" type="button">Play</button>
-    <button class="row-button" id="playlist-queue" type="button">Queue</button>
-    <details class="playlist-options"><summary class="row-button">Edit</summary>
+    <div class="section-actions"><button class="row-button symbol-button" id="playlist-play" data-icon="play" type="button" aria-label="Play playlist" title="Play playlist">Play</button>
+    <button class="row-button symbol-button" id="playlist-queue" data-icon="queue" type="button" aria-label="Add playlist to queue" title="Add to queue">Queue</button>
+    <details class="playlist-options"><summary class="row-button symbol-button" data-icon="edit" aria-label="Edit playlist" title="Edit playlist">Edit</summary>
       <form id="rename-playlist" class="inline-form"><input id="rename-value" class="url-input" maxlength="80" aria-label="Rename playlist" required>
         <button class="row-button" type="submit">Rename</button><button class="row-button" id="delete-playlist" type="button">Delete</button></form>
     </details></div></div>
     <div class="track-list" id="playlist-tracks"></div>`;
+  iconize(detail);
   $("#selected-name").textContent = selected.name;
-  $("#selected-count").textContent = `${selected.tracks.length} tracks · use arrows to reorder`;
+  $("#selected-count").textContent = `${selected.tracks.length} tracks`;
   $("#rename-value").value = selected.name;
   $("#rename-playlist").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -886,7 +918,7 @@ function renderPlaylists() {
     persistLists(); syncNativeQueue(); render(); toast("Playlist added to queue");
   });
   const songs = $("#playlist-tracks");
-  if (!selected.tracks.length) songs.innerHTML = '<div class="empty"><strong>Nothing here yet</strong><p>Add tracks from Library.</p></div>';
+  if (!selected.tracks.length) songs.innerHTML = '<div class="empty"><strong>Nothing here yet</strong><p>Add tracks from Audio.</p></div>';
   selected.tracks.forEach((id, index) => {
     const track = state.trackById.get(id);
     if (track) songs.append(trackRow(track, "playlist", index, selected));
@@ -976,20 +1008,21 @@ function renderMore() {
         <option value="0.75">0.75×</option><option value="1">1×</option><option value="1.25">1.25×</option>
         <option value="1.5">1.5×</option><option value="2">2×</option></select></label>
     </section><section class="settings-card"><h2>Media library</h2>
-      <div class="section-actions"><button id="add-folder" class="row-button" type="button" ${native ? "" : "hidden"}>Add folder</button>
-        <button id="rescan" class="row-button" type="button">Rescan library</button></div>
+      <div class="section-actions"><button id="add-folder" class="row-button symbol-button" data-icon="add" type="button" aria-label="Add music folder" title="Add folder" ${native ? "" : "hidden"}>Add folder</button>
+        <button id="rescan" class="row-button symbol-button" data-icon="refresh" type="button" aria-label="Rescan library" title="Rescan library">Rescan library</button></div>
       <div id="folder-list"></div>
       ${state.hiddenTracks.size ? '<h3>Hidden tracks</h3><div id="hidden-tracks"></div>' : ''}</section>
     <section class="settings-card"><h2>App updates</h2>
       <p id="update-status">Check for a newer ytmp3 app version.</p>
       <p id="update-notes" hidden></p>
-      <div class="section-actions"><button id="check-update" class="row-button" type="button">Check now</button>
+      <div class="section-actions"><button id="check-update" class="row-button symbol-button" data-icon="refresh" type="button" aria-label="Check for app updates" title="Check for updates">Check now</button>
         <button id="install-update" class="primary-button" type="button" hidden></button></div>
     </section><details class="settings-card about-details"><summary><h2>About ytmp3</h2></summary>
       <p>Downloads use <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener noreferrer">yt-dlp</a> and ffmpeg. ytmp3 provides the library and player.</p>
       <p>Save content you are authorized to copy.</p>
       ${native ? '<p>Android includes <a href="https://github.com/yausername/youtubedl-android">youtubedl-android</a> (<a href="/licenses/youtubedl-android-GPL-3.0.txt">GPL-3.0 license</a>).</p>' : ''}
     </details></div>`;
+  iconize(main);
   $("#theme-setting").value = state.settings.theme;
   $("#speed-setting").value = String(state.settings.speed);
   $("#theme-setting").addEventListener("change", (event) => {

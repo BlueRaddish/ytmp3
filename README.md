@@ -6,6 +6,8 @@ Use it only with content you are authorized to download. A public URL, or a site
 
 The app has four destinations: **Browse** for link downloads and folders, **Audio** for tracks, **Playlists** for saved collections, and **More** for settings and credits. Tap the bottom Now Playing bar to open playback and the ordered queue. From there, drag the numbered handle to reorder tracks, use **Mix** to jump among queued tracks, toggle **Loop queue**, or open queue options to save it as a playlist or clear it.
 
+Main-screen actions use symbols: the triangle plays, crossed arrows mix, the star filters favorites, and the checked square selects tracks. The buttons have action names for screen readers and tooltips on PC.
+
 ## PC app
 
 Requires Python 3.11+, ffmpeg on your PATH, and an internet connection for URL downloads.

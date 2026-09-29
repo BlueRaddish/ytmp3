@@ -1,5 +1,8 @@
 package io.github.blueraddish.ytmp3;
 
+import android.app.PendingIntent;
+import android.content.Intent;
+
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
@@ -17,7 +20,15 @@ public final class PlaybackService extends MediaSessionService {
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build();
-        session = new MediaSession.Builder(this, player).build();
+        Intent openApp = new Intent(this, MainActivity.class)
+            .setAction(Intent.ACTION_MAIN)
+            .addCategory(Intent.CATEGORY_LAUNCHER)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent sessionActivity = PendingIntent.getActivity(this, 0, openApp,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        session = new MediaSession.Builder(this, player)
+            .setSessionActivity(sessionActivity)
+            .build();
     }
 
     @Nullable @Override public MediaSession onGetSession(MediaSession.ControllerInfo controllerInfo) {

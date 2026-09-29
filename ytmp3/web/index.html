@@ -46,7 +46,7 @@
     </button>
     <div class="player-center">
       <div class="transport">
-        <button id="shuffle" class="icon-button" type="button" aria-label="Shuffle off" aria-pressed="false">⇄</button>
+        <button id="shuffle" class="icon-button" type="button" data-icon="mix" aria-label="Shuffle off" title="Shuffle" aria-pressed="false">⇄</button>
         <button id="previous" class="icon-button" type="button" aria-label="Previous track">⏮</button>
         <button id="play" class="play-button" type="button" aria-label="Play">▶</button>
         <button id="next" class="icon-button" type="button" aria-label="Next track">⏭</button>
@@ -65,8 +65,8 @@
     <section class="player-queue" id="player-queue" aria-label="Play queue">
       <div class="queue-heading"><div><h2>Queue</h2><span id="queue-count">0 tracks</span></div>
         <div class="queue-controls">
-          <button id="queue-mix" class="row-button" type="button" aria-label="Mix queue">Mix</button>
-          <button id="queue-loop" class="row-button" type="button" aria-pressed="false">Loop queue</button>
+          <button id="queue-mix" class="row-button symbol-button" type="button" data-icon="mix" aria-label="Mix queue" title="Mix queue" aria-pressed="false">Mix</button>
+          <button id="queue-loop" class="row-button symbol-button" type="button" data-icon="loop" aria-label="Loop queue" title="Loop queue" aria-pressed="false">Loop queue</button>
           <details class="queue-options" id="queue-options"><summary aria-label="Queue options" title="Queue options">⋮</summary>
             <div><button id="save-queue" type="button">Save as playlist</button>
               <button id="clear-queue" type="button">Clear queue</button></div></details>

@@ -1,5 +1,5 @@
 {
-  "version": "0.6.1",
-  "android_apk_url": "https://drive.google.com/open?id=13LjIzyD5XVVza9MY6inrIVjBlfu2uDTy",
-  "notes": "Compact Now Playing queue, four main destinations, Mix, Loop queue, and smaller settings rows in More."
+  "version": "0.6.2",
+  "android_apk_url": "https://drive.google.com/open?id=1d9btxdD7TfrUbEqOd84HOKrmsaa16QI5",
+  "notes": "Compact symbol actions across main screens. Tap the Android media notification to return to ytmp3 during background playback."
 }

@@ -331,8 +331,10 @@ input[type="range"] { width: 100%; height: 20px; margin: 0; accent-color: var(--
   .track-row { grid-template-columns: 44px minmax(0, 1fr) 44px; min-height: 74px; gap: 10px; }
   .track-row.reorderable, .track-row.selectable { grid-template-columns: 30px 44px minmax(0, 1fr) 44px; }
   .track-art { width: 44px; height: 44px; }
-  .settings-card { padding: 16px; }
-  .setting-row { align-items: flex-start; flex-direction: column; justify-content: center; gap: 6px; padding: 8px 0; }
+  .settings-card { margin: 10px 0; padding: 16px; }
+  .settings-card h2 { margin-bottom: 8px; }
+  .setting-row { align-items: center; gap: 8px; padding: 6px 0; }
+  .setting-row select { max-width: 52%; }
   .player { padding-inline: 16px; }
   .queue-heading .row-button { padding-inline: 8px; font-size: 12px; }
 }

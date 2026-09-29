@@ -978,8 +978,8 @@ function renderMore() {
     </section><section class="settings-card"><h2>Media library</h2>
       <div class="section-actions"><button id="add-folder" class="row-button" type="button" ${native ? "" : "hidden"}>Add folder</button>
         <button id="rescan" class="row-button" type="button">Rescan library</button></div>
-      <div id="folder-list"></div><h3>Hidden tracks</h3>
-      <div id="hidden-tracks"></div></section>
+      <div id="folder-list"></div>
+      ${state.hiddenTracks.size ? '<h3>Hidden tracks</h3><div id="hidden-tracks"></div>' : ''}</section>
     <section class="settings-card"><h2>App updates</h2>
       <p id="update-status">Check for a newer ytmp3 app version.</p>
       <p id="update-notes" hidden></p>

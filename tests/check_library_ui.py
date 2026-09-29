@@ -139,6 +139,8 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator("#create-playlist button[type=submit]").click()
             assert page.locator(".playlist-card").count() == 2
             page.locator('.nav-item[data-view="more"]').click()
+            assert page.locator("#hidden-tracks").count() == 0
+            assert page.locator("#check-update").bounding_box()["y"] < page.locator("#player").bounding_box()["y"]
             page.locator(".about-details summary").click()
             assert page.get_by_text("Downloads use").is_visible()
             page.locator('.nav-item[data-view="audio"]').click()

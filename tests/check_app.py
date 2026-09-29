@@ -1,6 +1,7 @@
 """Run with: python tests/check_app.py"""
 
 import http.client
+import json
 import math
 import struct
 import sys
@@ -88,6 +89,20 @@ def main():
                            {"Cookie": cookie, "Content-Type": "application/json",
                             "Origin": f"http://127.0.0.1:{port}"},
                            b'{"url":42}')[0] == 400
+            assert request(port, "POST", "/api/preview")[0] == 401
+            with patch.object(app, "validate_source", side_effect=lambda url: url), \
+                 patch.object(app, "YoutubeDL") as fake:
+                fake.return_value.__enter__.return_value.extract_info.return_value = {
+                    "title": "Test collection", "playlist_count": 12,
+                    "entries": [{"title": "First", "thumbnail": "https://example.org/art.jpg"}]}
+                preview = library.preview("https://example.org/list")
+                assert preview["kind"] == "playlist" and preview["count"] == 12
+                assert preview["thumbnail"] == "https://example.org/art.jpg"
+                status, _, data = request(port, "POST", "/api/preview",
+                                          {"Cookie": cookie, "Content-Type": "application/json",
+                                           "Origin": f"http://127.0.0.1:{port}"},
+                                          b'{"url":"https://example.org/list"}')
+                assert status == 200 and json.loads(data)["title"] == "Test collection"
         finally:
             server.shutdown()
             server.server_close()

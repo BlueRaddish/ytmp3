@@ -14,10 +14,16 @@ adding headers, cards, forms, or explanatory text. Keep a persistent element
 only if it helps the user act, decide, read current state, or navigate. Do not
 repeat the page title inside its content when the navigation bar already names
 it. Keep secondary actions in a short menu or dialog. Explain a feature when it
-is first needed,
-or in one-time onboarding, optional help, a separate website, or GitHub docs
+is first needed, or in one-time onboarding, optional help, a separate website, or GitHub docs
 instead of leaving a permanent introduction above the user's music. Apply
 this rule to new screens and other projects.
+Browse shows all accessible media in one compact list. A folder filter and
+filename search narrow it without leaving the page. The link field stays small;
+after a URL is entered, yt-dlp extracts a title, source, and artwork when
+available. The desktop preview floats below the field and the phone preview
+appears inline. A metadata preview avoids embedding arbitrary websites, which
+many sites disallow. The preview makes no download and never replaces the
+user's explicit Save action.
 Use symbols for repeated page actions, with a 44 px touch target, a screen-reader
 name, and a desktop tooltip. Keep explicit text in confirmation dialogs and menus.
 In the expanded player, keep the current track fixed above an independently
@@ -33,6 +39,12 @@ References:
   seek, speed, repeat, shuffle and a queue stay reachable during playback.
 - [VLC for Android audio player](https://docs.videolan.me/vlc-user/android/3.X/en/audio/audio_player.html):
   keep the current item and transport controls available in a compact player.
+- [yt-dlp embedding examples](https://github.com/yt-dlp/yt-dlp#embedding-yt-dlp):
+  extract metadata without downloading media for a PC link preview.
+- [youtubedl-android usage](https://github.com/yausername/youtubedl-android#usage):
+  run the same metadata probe through the Android downloader wrapper.
+- [MDN frame-ancestors](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/frame-ancestors):
+  sites can block embedded pages, so the URL preview shows extracted metadata.
 
 ## Device matrix
 
@@ -70,8 +82,9 @@ These captures are from the responsive PC browser app. The Android shell uses
 the same interface, but requires a separate on-device check.
 
 - [Desktop library](shots/desktop.png): 1440 px viewport, populated library.
+- [Desktop browse](shots/desktop-browse.png): URL preview floats beside the media list.
 - [Phone audio](shots/phone-browser.png): 390 px viewport, populated library.
-- [Phone browse](shots/phone-browse.png): 390 px viewport, shared link and folders.
+- [Phone browse](shots/phone-browse.png): 390 px viewport, link preview, folder filter, and accessible media list.
 - [Phone playlists](shots/phone-playlists.png): 390 px viewport, playlist controls.
 - [Phone queue](shots/phone-player-browser.png): 390 px viewport, fixed current track and full-width queue.
 - [Phone song](shots/phone-song-browser.png): 390 px viewport, large cover and transport controls.
@@ -87,3 +100,9 @@ the file played in the phone player and exported through MediaStore into
 `Music/ytmp3`. Sharing a page from Firefox opened ytmp3 with its URL in the
 input field and did not start another download. This check establishes one working source, device, and codec;
 other sites and Android versions still need coverage.
+
+For v0.6.4, an Android 35 emulator confirmed the new Browse list and preserved
+the existing library after an in-place install. The ARM64 yt-dlp runtime could
+not execute on that x86_64 emulator, so the Android link preview still needs
+a check on the Galaxy S10. The PC preview returned metadata for the Wikimedia
+test-tone page without downloading the audio.

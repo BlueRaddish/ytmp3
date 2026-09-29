@@ -26,6 +26,7 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from tinytag import TinyTag
+from yt_dlp import YoutubeDL
 
 from .config import DEFAULT_TEMPLATE
 from . import __version__
@@ -247,6 +248,30 @@ class Library:
         self.pool.submit(self._download, job_id, url)
         return job_id
 
+    def preview(self, raw: str) -> dict:
+        url = validate_source(raw)
+        try:
+            with YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True,
+                            "extract_flat": "in_playlist", "playlistend": 1,
+                            "socket_timeout": 8}) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if not isinstance(info, dict):
+                raise ValueError("No metadata")
+            entries = info.get("entries")
+            first = next((item for item in entries if isinstance(item, dict)), {}) if entries else {}
+            title = str(info.get("title") or first.get("title") or "")[:160]
+            thumbnail = info.get("thumbnail") or first.get("thumbnail") or ""
+            parsed = urlsplit(thumbnail)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+                thumbnail = ""
+            return {"title": title, "site": urlsplit(url).hostname,
+                    "creator": str(info.get("uploader") or first.get("uploader") or "")[:100],
+                    "thumbnail": thumbnail, "kind": "playlist" if entries is not None else "track",
+                    "count": info.get("playlist_count") if isinstance(info.get("playlist_count"), int) else None}
+        except Exception:
+            logging.info("Link preview unavailable", exc_info=True)
+            return {"error": "Preview unavailable."}
+
     def job(self, job_id: str) -> dict | None:
         with self.lock:
             item = self.jobs.get(job_id)
@@ -366,7 +391,7 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy",
                          "default-src 'self'; script-src 'self'; style-src 'self'; "
-                         "img-src 'self' data:; media-src 'self'; connect-src 'self'; "
+                         "img-src 'self' data: https:; media-src 'self'; connect-src 'self'; "
                          "base-uri 'none'; form-action 'self'")
         for name, value in (headers or {}).items():
             self.send_header(name, value)
@@ -440,7 +465,7 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._authorized():
             return
-        if self.path not in {"/api/download", "/api/tracks/edit", "/api/update/install"}:
+        if self.path not in {"/api/download", "/api/preview", "/api/tracks/edit", "/api/update/install"}:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         origin = self.headers.get("Origin")
@@ -462,6 +487,8 @@ class AppHandler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(size))
             if self.path == "/api/tracks/edit":
                 self.server.library.edit_track(body)
+            elif self.path == "/api/preview":
+                preview = self.server.library.preview(body["url"])
             elif self.path == "/api/update/install":
                 job = self.server.install_update()
             else:
@@ -471,6 +498,8 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/tracks/edit":
             self._json(200, {})
+        elif self.path == "/api/preview":
+            self._json(200, preview)
         elif self.path == "/api/update/install":
             self._json(202, job)
         else:

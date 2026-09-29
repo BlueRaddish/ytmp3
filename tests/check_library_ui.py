@@ -35,6 +35,10 @@ with tempfile.TemporaryDirectory() as temp:
         "current": "0.5.0", "version": "0.5.0", "available": False,
         "notes": "", "android_apk_url": "https://drive.google.com/open?id=test"})
     update_stub.start()
+    preview_stub = patch.object(server.library, "preview", return_value={
+        "title": "Preview test tone", "site": "example.org", "creator": "Test artist",
+        "kind": "track", "thumbnail": ""})
+    preview_stub.start()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -199,6 +203,13 @@ with tempfile.TemporaryDirectory() as temp:
             desktop.locator("#expand-player").click()
             assert desktop.locator("#player-queue").is_visible()
             assert desktop.locator("#queue-options").is_visible()
+            desktop.locator("#close-player").click()
+            desktop.locator('.nav-item[data-view="browse"]').click()
+            desktop.locator("#url-input").fill("https://example.org/tone")
+            desktop.locator("#link-preview strong").wait_for()
+            assert desktop.locator("#link-preview").evaluate("e => getComputedStyle(e).position") == "absolute"
+            desktop.screenshot(path=str(root / "desktop-browse.png"), full_page=True)
+            shutil.copy2(root / "desktop-browse.png", Path(tempfile.gettempdir()) / "ytmp3-desktop-browse-check.png")
             desktop.close()
             tablet = browser.new_page(viewport={"width": 768, "height": 900})
             tablet.goto(f"http://127.0.0.1:{server.server_port}/?key={server.key}")
@@ -220,13 +231,31 @@ with tempfile.TemporaryDirectory() as temp:
             assert shared.locator('.nav-item[data-view="browse"]').get_attribute("aria-current") == "page"
             assert shared.locator("#url-input").input_value() == "https://example.org/tone"
             assert shared.locator("#url-form button .action-icon").count() == 1
+            shared.locator("#link-preview strong").wait_for()
+            assert shared.locator("#link-preview strong").inner_text() == "Preview test tone"
+            assert shared.locator("#browse-tracks .track-row").count() == 2
+            assert shared.locator("#browse-tracks .track-meta span").first.is_visible()
+            assert shared.locator(".browse-library").bounding_box()["y"] - shared.locator(".download-panel").bounding_box()["y"] - shared.locator(".download-panel").bounding_box()["height"] >= 20
             shared.screenshot(path=str(root / "browse.png"), full_page=True)
             shutil.copy2(root / "browse.png", Path(tempfile.gettempdir()) / "ytmp3-browse-check.png")
+            shared.locator("#browse-folder").select_option("1:")
+            assert shared.locator("#browse-tracks .track-row").count() == 1
+            shared.locator("#browse-folder").select_option("")
+            shared.locator("#browse-search").fill("other")
+            assert shared.locator("#browse-tracks .track-row").count() == 1
+            shared.locator("#browse-search").fill("")
+            shared.locator("#browse-tracks .track-meta").first.click()
+            assert shared.locator("#player-title").inner_text() != "Nothing playing"
+            shared.locator("#browse-tracks .tile-menu summary").first.click()
+            shared.get_by_role("button", name="Remove from Library").click()
+            shared.locator("#confirm-hide").click()
+            assert shared.locator("#browse-tracks .track-row").count() == 1
             shared.close()
             assert not errors, errors
             browser.close()
     finally:
         update_stub.stop()
+        preview_stub.stop()
         server.shutdown()
         server.server_close()
         thread.join()

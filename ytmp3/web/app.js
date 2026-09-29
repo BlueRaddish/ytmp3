@@ -71,6 +71,9 @@ const state = {
   updateCheckSilent: true,
   updateJob: null,
   urlDraft: "",
+  browseFolder: "",
+  browseQuery: "",
+  browseLimit: 100,
   repeat: "off",
   shuffle: false,
   job: null,
@@ -167,7 +170,7 @@ function visibleTracks() {
     !state.hiddenTracks.has(track.id) &&
     inFolder(track, state.folder) &&
     (!favorites || favorites.has(track.id)) &&
-    [titleOf(track), track.artist, track.album, track.folder].some((value) =>
+    [titleOf(track), track.artist, track.album, track.folder, track.id].some((value) =>
       (value || "").toLocaleLowerCase().includes(query)));
   const compare = (a, b) => String(a || "").localeCompare(String(b || ""), undefined, { numeric: true, sensitivity: "base" });
   result.sort((a, b) => {
@@ -266,12 +269,17 @@ function renderBrowse() {
       <form id="url-form"><label id="add-heading" for="url-input">Add from link</label>
         <div class="url-form"><input id="url-input" class="url-input" type="url" required
           inputmode="url" autocomplete="url" placeholder="Track or playlist URL"
-          aria-describedby="url-note"><button class="primary-button symbol-button" data-icon="download" type="submit" aria-label="Save MP3 from link" title="Save MP3">Save MP3</button></div>
-        <p class="form-note" id="url-note">Powered by yt-dlp · up to 100 playlist items · save content you may copy.</p>
+          aria-label="Track or playlist URL"><button class="primary-button symbol-button" data-icon="download" type="submit" aria-label="Save MP3 from link" title="Save MP3">Save MP3</button></div>
       </form><div id="job-container"></div>
+      <div id="link-preview" class="link-preview" role="status" hidden></div>
     </section>
-    <div class="section-head compact-head"><h2>Folders</h2></div>
-    <div id="browse-folders" class="browse-folders"></div>
+    <section class="browse-library" aria-labelledby="browse-heading">
+      <div class="browse-heading"><h2 id="browse-heading">All media</h2><span id="browse-count"></span></div>
+      <div class="browse-controls"><label for="browse-folder">Folders</label>
+        <select id="browse-folder"></select>
+        <input id="browse-search" class="search-input" type="search" placeholder="Find a file" aria-label="Find a file"></div>
+      <div id="browse-tracks" class="track-list" data-layout="compact"></div>
+    </section>
   </div>`;
   const input = $("#url-input");
   const shared = sessionStorage.getItem("ytmp3_shared_url");
@@ -280,38 +288,138 @@ function renderBrowse() {
     sessionStorage.removeItem("ytmp3_shared_url");
   }
   input.value = state.urlDraft;
-  input.addEventListener("input", (event) => { state.urlDraft = event.target.value; });
+  input.addEventListener("input", (event) => { state.urlDraft = event.target.value; scheduleLinkPreview(); });
   $("#url-form").addEventListener("submit", submitURL);
   renderJob();
+  scheduleLinkPreview();
   const tracks = state.tracks.filter((track) => !state.hiddenTracks.has(track.id));
   const folders = [...new Map(tracks.flatMap((track) => [
     [track.rootFolderId, track.rootFolder], [track.folderId, track.folder]
   ]).filter(([id]) => id)).entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  const counts = new Map();
-  for (const track of tracks) {
-    if (track.rootFolderId) counts.set(track.rootFolderId, (counts.get(track.rootFolderId) || 0) + 1);
-    let id = track.folderId;
-    while (id && id !== track.rootFolderId) {
-      counts.set(id, (counts.get(id) || 0) + 1);
-      const slash = id.lastIndexOf("/");
-      if (slash < (track.rootFolderId || "").length) break;
-      id = id.slice(0, slash);
+  const folderSelect = $("#browse-folder");
+  folderSelect.add(new Option("All folders", ""));
+  folders.forEach(([id, name]) => folderSelect.add(new Option(name, id)));
+  if (folders.some(([id]) => id === state.browseFolder)) folderSelect.value = state.browseFolder;
+  else state.browseFolder = "";
+  folderSelect.addEventListener("change", (event) => {
+    state.browseFolder = event.target.value; state.browseLimit = 100; renderBrowseTracks();
+  });
+  $("#browse-search").value = state.browseQuery;
+  $("#browse-search").addEventListener("input", (event) => {
+    state.browseQuery = event.target.value; state.browseLimit = 100; renderBrowseTracks();
+  });
+  renderBrowseTracks();
+}
+
+function renderBrowseTracks() {
+  const list = $("#browse-tracks");
+  if (!list) return;
+  list.replaceChildren();
+  const tracks = browseTracks();
+  $("#browse-count").textContent = `${tracks.length} ${tracks.length === 1 ? "file" : "files"}`;
+  if (!tracks.length) {
+    list.innerHTML = '<div class="empty"><strong>No media here</strong><p>Add a music folder in More or save a link above.</p></div>';
+    return;
+  }
+  for (const track of tracks.slice(0, state.browseLimit)) {
+    const row = trackRow(track, "browse");
+    row.classList.add("browse-track");
+    row.querySelector(".track-meta span").textContent = [track.folder, track.duration ? formatTime(track.duration) : null].filter(Boolean).join(" · ");
+    row.addEventListener("click", (event) => {
+      if (!event.target.closest("button, summary, details, input")) {
+        state.queue = tracks.map((item) => item.id);
+        playTrack(track.id);
+      }
+    });
+    list.append(row);
+  }
+  if (tracks.length > state.browseLimit) {
+    const more = document.createElement("button");
+    more.className = "row-button show-more";
+    more.textContent = `Show ${Math.min(100, tracks.length - state.browseLimit)} more`;
+    more.addEventListener("click", () => { state.browseLimit += 100; renderBrowseTracks(); });
+    list.append(more);
+  }
+}
+
+function browseTracks() {
+  const query = state.browseQuery.toLocaleLowerCase();
+  return state.tracks.filter((track) => !state.hiddenTracks.has(track.id)
+    && inFolder(track, state.browseFolder)
+    && [titleOf(track), track.artist, track.album, track.folder, track.id].some((value) =>
+      (value || "").toLocaleLowerCase().includes(query)))
+    .sort((a, b) => (a.folder || "").localeCompare(b.folder || "")
+      || titleOf(a).localeCompare(titleOf(b), undefined, { numeric: true }));
+}
+
+let previewTimer;
+let previewSerial = 0;
+function scheduleLinkPreview() {
+  clearTimeout(previewTimer);
+  const serial = ++previewSerial;
+  const box = $("#link-preview");
+  const input = $("#url-input");
+  if (!box || !input) return;
+  box.hidden = true;
+  const url = input.value.trim();
+  try {
+    const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname
+        || parsed.username || parsed.password || url.length > 4096) return;
+  } catch { return; }
+  previewTimer = setTimeout(() => loadLinkPreview(url, serial), 650);
+}
+
+async function loadLinkPreview(url, serial) {
+  const current = () => serial === previewSerial && state.view === "browse"
+    && $("#url-input")?.value.trim() === url;
+  if (!current()) return;
+  const box = $("#link-preview");
+  box.textContent = "Checking link…";
+  box.hidden = false;
+  let data;
+  try {
+    if (native) {
+      const started = JSON.parse(native.preview(url));
+      if (!started.job) throw new Error();
+      for (let attempt = 0; attempt < 30 && current(); attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        data = JSON.parse(native.previewJob(started.job));
+        if (data?.state === "done" || data?.state === "error") break;
+      }
+    } else {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      try {
+        const response = await fetch("/api/preview", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }), signal: controller.signal
+        });
+        data = response.ok ? await response.json() : null;
+      } finally { clearTimeout(timeout); }
     }
+  } catch { data = null; }
+  if (!current()) return;
+  box.replaceChildren();
+  const parsed = new URL(url);
+  const text = document.createElement("div");
+  const title = document.createElement("strong");
+  title.textContent = data?.title || parsed.hostname;
+  const subtitle = document.createElement("span");
+  subtitle.textContent = data?.title
+    ? [data.site || parsed.hostname, data.kind === "playlist"
+      ? data.count ? `${data.count} tracks` : "Playlist" : data.creator].filter(Boolean).join(" · ")
+    : "Link ready to try";
+  text.append(title, subtitle);
+  if (data?.thumbnail) {
+    const image = document.createElement("img");
+    image.src = data.thumbnail;
+    image.alt = "";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("error", () => image.remove());
+    box.append(image);
   }
-  const list = $("#browse-folders");
-  if (!folders.length) list.innerHTML = '<div class="empty"><strong>No folders yet</strong><p>Include a music folder or save a track.</p></div>';
-  for (const [id, name] of folders) {
-    const row = document.createElement("div"); row.className = "folder-row";
-    const label = document.createElement("button"); label.className = "folder-name";
-    label.textContent = `${name} · ${counts.get(id) || 0}`;
-    label.addEventListener("click", () => { state.folder = id; state.visibleLimit = 100; setView("audio"); });
-    const mix = document.createElement("button"); mix.className = "row-button symbol-button";
-    mix.innerHTML = icon("mix"); mix.title = `Mix ${name}`;
-    mix.setAttribute("aria-label", `Mix ${name}`);
-    mix.addEventListener("click", () => playCollection(tracks.filter((track) => inFolder(track, id))
-      .map((track) => track.id), true));
-    row.append(label, mix); list.append(row);
-  }
+  box.append(text);
 }
 
 function renderAudio() {
@@ -496,7 +604,8 @@ $("#confirm-hide").addEventListener("click", () => {
   localStorage.setItem("ytmp3_hidden_tracks", JSON.stringify([...state.hiddenTracks]));
   $("#hide-dialog").close();
   if (state.view === "audio") renderTracks();
-  toast("Removed from Audio. Restore in More.");
+  else if (state.view === "browse") renderBrowse();
+  toast("Removed from Library. Restore in More.");
 });
 
 function toggleFavorite(id) {
@@ -504,6 +613,7 @@ function toggleFavorite(id) {
     ? state.favorites.filter((item) => item !== id) : [...state.favorites, id];
   localStorage.setItem("ytmp3_favorites", JSON.stringify(state.favorites));
   if (state.view === "audio") renderTracks();
+  else if (state.view === "browse") renderBrowseTracks();
   else if (state.view === "playlists") renderPlaylists();
   renderQueue();
 }
@@ -630,6 +740,7 @@ function trackMenu(track, context, index, list) {
   };
   addAction("Play", () => {
     if (context === "library") state.queue = visibleTracks().map((item) => item.id);
+    if (context === "browse") state.queue = browseTracks().map((item) => item.id);
     if (context === "playlist") state.queue = list.tracks.filter((id) => state.trackById.has(id));
     playTrack(track.id, context === "queue" ? index : undefined);
   });
@@ -637,7 +748,7 @@ function trackMenu(track, context, index, list) {
   addAction("Add to playlist", () => openPlaylistPicker(track.id));
   addAction(state.favorites.includes(track.id) ? "Remove favorite" : "Add to favorites",
     () => toggleFavorite(track.id));
-  if (context === "library") {
+  if (context === "library" || context === "browse") {
     addAction("Play next", () => {
       state.queue.splice(Math.max(0, state.current + 1), 0, track.id);
       persistLists(); syncNativeQueue(); renderQueue(); toast("Added next");
@@ -686,12 +797,12 @@ function trackRow(track, context = "library", index = -1, list = null) {
   const row = document.createElement("div");
   row.className = "track-row";
   if (context === "queue" ? index === state.current : currentTrack()?.id === track.id) row.classList.add("current");
-  if (context !== "library") {
+  if (context !== "library" && context !== "browse") {
     row.classList.add("reorderable");
     row.dataset.reorderIndex = String(index);
     row.append(dragHandle(row, index, context === "queue"
       ? reorderQueue : (from, to) => reorderPlaylist(list, from, to), titleOf(track)));
-  } else if (state.selectionMode) {
+  } else if (context === "library" && state.selectionMode) {
     row.classList.add("selectable");
     const check = document.createElement("input");
     check.type = "checkbox"; check.className = "track-select";
@@ -1470,6 +1581,7 @@ if (native) setInterval(() => {
     updatePlaybackModes();
     updatePlayer();
     if (changed && state.view === "audio") renderTracks();
+    if (changed && state.view === "browse") renderBrowseTracks();
     if (changed) renderQueue();
   } catch { /* The controller is reconnecting. */ }
 }, 500);

@@ -240,6 +240,8 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public String tracks() { return library.tracks(); }
         @JavascriptInterface public String submit(String url) { return library.submit(url); }
         @JavascriptInterface public String job(String id) { return library.job(id); }
+        @JavascriptInterface public String preview(String url) { return library.preview(url); }
+        @JavascriptInterface public String previewJob(String id) { return library.previewJob(id); }
         @JavascriptInterface public String exportTrack(String id) { return library.exportTrack(id); }
         @JavascriptInterface public String folders() { return library.folders(); }
         @JavascriptInterface public String editTrack(String id, String title, String artist, String album) {

@@ -44,6 +44,7 @@ final class AndroidLibrary {
     private final ExecutorService downloads = Executors.newSingleThreadExecutor();
     private final ExecutorService exports = Executors.newSingleThreadExecutor();
     private final Map<String, Job> jobs = new ConcurrentHashMap<>();
+    private final Map<String, String> previewJobs = new ConcurrentHashMap<>();
     private final Map<String, Uri> indexedFiles = new ConcurrentHashMap<>();
     private final Map<String, JSONObject> tagCache = new ConcurrentHashMap<>();
     private boolean ready;
@@ -419,6 +420,62 @@ final class AndroidLibrary {
         if (found == null) return "null";
         try { return found.json().toString(); }
         catch (JSONException ignored) { return "null"; }
+    }
+
+    String preview(String raw) {
+        try {
+            String url = validUrl(raw);
+            String id = UUID.randomUUID().toString();
+            previewJobs.put(id, "{\"state\":\"queued\"}");
+            if (previewJobs.size() > 12) {
+                for (String old : previewJobs.keySet()) {
+                    if (!old.equals(id)) { previewJobs.remove(old); break; }
+                }
+            }
+            // Preview shares the download worker so yt-dlp initialization and execution stay serialized.
+            // A separate worker is useful only if previews must run during a long download.
+            downloads.execute(() -> loadPreview(id, url));
+            return new JSONObject().put("job", id).toString();
+        } catch (Exception error) { return failure(error.getMessage()); }
+    }
+
+    String previewJob(String id) {
+        return previewJobs.getOrDefault(id, "null");
+    }
+
+    private void loadPreview(String id, String url) {
+        previewJobs.put(id, "{\"state\":\"working\"}");
+        try {
+            initialize();
+            YoutubeDLRequest request = new YoutubeDLRequest(url);
+            request.addOption("--flat-playlist");
+            request.addOption("--dump-single-json");
+            request.addOption("--skip-download");
+            request.addOption("--playlist-end", "1");
+            request.addOption("--no-warnings");
+            JSONObject info = new JSONObject(YoutubeDL.getInstance().execute(request).getOut());
+            JSONArray entries = info.optJSONArray("entries");
+            JSONObject first = entries == null ? null : entries.optJSONObject(0);
+            String thumbnail = info.optString("thumbnail", "");
+            if (thumbnail.isEmpty() && first != null) thumbnail = first.optString("thumbnail", "");
+            Uri image = Uri.parse(thumbnail);
+            if (!"https".equalsIgnoreCase(image.getScheme()) || image.getHost() == null
+                    || image.getUserInfo() != null) thumbnail = "";
+            String title = info.optString("title", "");
+            if (title.isEmpty() && first != null) title = first.optString("title", "");
+            String creator = info.optString("uploader", "");
+            if (creator.isEmpty() && first != null) creator = first.optString("uploader", "");
+            JSONObject result = new JSONObject().put("state", "done")
+                .put("title", title.length() > 160 ? title.substring(0, 160) : title)
+                .put("creator", creator.length() > 100 ? creator.substring(0, 100) : creator)
+                .put("site", Uri.parse(url).getHost()).put("thumbnail", thumbnail)
+                .put("kind", entries == null ? "track" : "playlist");
+            if (info.has("playlist_count")) result.put("count", info.optInt("playlist_count"));
+            previewJobs.put(id, result.toString());
+        } catch (Exception error) {
+            Log.i("ytmp3", "Link preview unavailable", error);
+            previewJobs.put(id, "{\"state\":\"error\"}");
+        }
     }
 
     private void initialize() throws Exception {

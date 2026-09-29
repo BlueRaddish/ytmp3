@@ -333,13 +333,9 @@ public final class MainActivity extends Activity {
                     if (items.isEmpty()) { controller.clearMediaItems(); return; }
                     MediaItem current = controller.getCurrentMediaItem();
                     String currentId = current == null ? null : current.mediaId;
-                    int selected = Math.min(index, items.size() - 1);
-                    if (currentId != null) {
-                        for (int i = 0; i < items.size(); i++) {
-                            if (items.get(i).mediaId.equals(currentId)) { selected = i; break; }
-                        }
-                    }
-                    long position = Math.max(0, controller.getCurrentPosition());
+                    int selected = Math.max(0, Math.min(index, items.size() - 1));
+                    long position = currentId != null && currentId.equals(items.get(selected).mediaId)
+                            ? Math.max(0, controller.getCurrentPosition()) : 0;
                     boolean playing = controller.isPlaying();
                     controller.setMediaItems(items, selected, position);
                     controller.prepare();

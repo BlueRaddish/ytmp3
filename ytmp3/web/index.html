@@ -17,18 +17,17 @@
     <aside class="sidebar">
       <div class="brand"><span class="brand-mark" aria-hidden="true">y</span><span>ytmp3<small>Personal audio</small></span></div>
       <nav class="navigation" aria-label="Main navigation">
-        <button type="button" data-view="library" class="nav-item active"><span aria-hidden="true">▦</span><span>Library</span></button>
+        <button type="button" data-view="browse" class="nav-item"><span aria-hidden="true">⌕</span><span>Browse</span></button>
+        <button type="button" data-view="audio" class="nav-item active"><span aria-hidden="true">♫</span><span>Audio</span></button>
         <button type="button" data-view="playlists" class="nav-item"><span aria-hidden="true">♫</span><span>Playlists</span></button>
-        <button type="button" data-view="queue" class="nav-item"><span aria-hidden="true">≡</span><span>Queue</span><span id="queue-count" class="nav-count">0</span></button>
-        <button type="button" data-view="settings" class="nav-item"><span aria-hidden="true">⚙</span><span>Settings</span></button>
-        <button type="button" data-view="about" class="nav-item"><span aria-hidden="true">ⓘ</span><span>About</span></button>
+        <button type="button" data-view="more" class="nav-item"><span aria-hidden="true">⋯</span><span>More</span></button>
       </nav>
       <p class="sidebar-credit">Downloads powered by <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener noreferrer">yt-dlp</a></p>
     </aside>
 
     <div class="workspace">
       <header class="topbar">
-        <div class="top-title"><span class="mobile-mark" aria-hidden="true">y</span><span id="page-title">Library</span></div>
+        <div class="top-title"><span class="mobile-mark" aria-hidden="true">y</span><span id="page-title">Audio</span></div>
         <div class="top-actions">
           <span id="connection" class="connection" role="status">Connecting…</span>
           <button id="theme-button" class="icon-button" type="button" aria-label="Switch theme">◐</button>
@@ -63,6 +62,18 @@
       <button id="speed" type="button" class="text-button" aria-label="Playback speed">1×</button>
       <label class="volume-control"><span aria-hidden="true">◖</span><span class="sr-only">Volume</span><input id="volume" type="range" min="0" max="100" value="100" aria-label="Volume"></label>
     </div>
+    <section class="player-queue" id="player-queue" aria-label="Play queue">
+      <div class="queue-heading"><div><h2>Queue</h2><span id="queue-count">0 tracks</span></div>
+        <div class="queue-controls">
+          <button id="queue-mix" class="row-button" type="button" aria-label="Mix queue">Mix</button>
+          <button id="queue-loop" class="row-button" type="button" aria-pressed="false">Loop queue</button>
+          <details class="queue-options" id="queue-options"><summary aria-label="Queue options" title="Queue options">⋮</summary>
+            <div><button id="save-queue" type="button">Save as playlist</button>
+              <button id="clear-queue" type="button">Clear queue</button></div></details>
+        </div>
+      </div>
+      <div id="queue-list" class="queue-list" aria-live="polite"></div>
+    </section>
     <audio id="audio" preload="metadata"></audio>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
@@ -76,6 +87,18 @@
       <div class="dialog-actions"><button type="button" class="row-button" id="playlist-cancel">Cancel</button>
         <button type="submit" class="primary-button">Add track</button></div>
     </form>
+  </dialog>
+  <dialog id="save-queue-dialog" aria-labelledby="save-queue-title">
+    <form id="save-queue-form"><h2 id="save-queue-title">Save queue as playlist</h2>
+      <label for="queue-name">Playlist name</label><input id="queue-name" maxlength="80" required>
+      <div class="dialog-actions"><button id="cancel-save-queue" class="row-button" type="button">Cancel</button>
+        <button class="primary-button" type="submit">Save playlist</button></div></form>
+  </dialog>
+  <dialog id="create-playlist-dialog" aria-labelledby="create-playlist-title">
+    <form id="create-playlist"><h2 id="create-playlist-title">New playlist</h2>
+      <label for="new-playlist-name">Name</label><input id="new-playlist-name" maxlength="80" required>
+      <div class="dialog-actions"><button id="cancel-create-playlist" class="row-button" type="button">Cancel</button>
+        <button class="primary-button" type="submit">Create</button></div></form>
   </dialog>
   <dialog id="track-dialog" aria-labelledby="track-dialog-title">
     <form id="track-editor">
@@ -100,7 +123,7 @@
   <dialog id="hide-dialog" aria-labelledby="hide-title">
     <h2 id="hide-title">Remove from Library?</h2>
     <p id="hide-text"></p>
-    <p class="form-note">The MP3 files stay on this device. Restore hidden tracks in Settings.</p>
+    <p class="form-note">The MP3 files stay on this device. Restore hidden tracks in More.</p>
     <div class="dialog-actions"><button id="cancel-hide" class="row-button" type="button">Cancel</button>
       <button id="confirm-hide" class="primary-button" type="button">Remove</button></div>
   </dialog>

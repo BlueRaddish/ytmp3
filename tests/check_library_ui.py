@@ -46,10 +46,10 @@ with tempfile.TemporaryDirectory() as temp:
             errors = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(f"http://127.0.0.1:{server.server_port}/?key={server.key}")
-            page.locator(".track-row").first.wait_for()
-            assert page.locator(".track-row").count() == 2
-            assert page.locator(".track-art img").count() == 2
-            assert page.locator(".track-art img").first.evaluate("e => e.naturalWidth") > 0
+            page.locator("#track-list .track-row").first.wait_for()
+            assert page.locator("#track-list .track-row").count() == 2
+            assert page.locator("#track-list .track-art img").count() == 2
+            assert page.locator("#track-list .track-art img").first.evaluate("e => e.naturalWidth") > 0
             page.locator("#sort-tracks").select_option("artist")
             page.get_by_role("button", name="Tile view").click()
             assert page.locator("#track-list").get_attribute("data-layout") == "tiles"
@@ -65,18 +65,18 @@ with tempfile.TemporaryDirectory() as temp:
             assert page.locator("#track-list").get_attribute("data-layout") == "compact"
             page.get_by_role("button", name="List view").click()
             page.locator("#filter").fill("Tagged artist")
-            assert page.locator(".track-row").count() == 2
+            assert page.locator("#track-list .track-row").count() == 2
             page.locator("#filter").fill("")
             page.locator("#folder-filter").select_option("1:")
-            assert page.locator(".track-row").count() == 1
+            assert page.locator("#track-list .track-row").count() == 1
             page.locator("#mix-selection").click()
             assert len(page.evaluate("JSON.parse(localStorage.ytmp3_queue)")) == 1
             page.locator(".tile-menu summary").first.click()
             page.get_by_role("button", name="Edit details and cover").click()
             page.locator("#edit-title").fill("Edited title")
             page.locator("#track-editor button[type=submit]").click()
-            page.locator(".track-row strong").get_by_text("Edited title", exact=True).wait_for(timeout=5000)
-            assert page.locator(".track-row strong").first.inner_text() == "Edited title"
+            page.locator("#track-list .track-row strong").get_by_text("Edited title", exact=True).wait_for(timeout=5000)
+            assert page.locator("#track-list .track-row strong").first.inner_text() == "Edited title"
             page.locator(".tile-menu summary").first.click()
             page.get_by_role("button", name="View info").click()
             assert page.locator("#info-title").inner_text() == "Edited title"
@@ -85,18 +85,18 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator(".tile-menu summary").first.click()
             page.get_by_role("button", name="Remove from Library").click()
             page.locator("#confirm-hide").click()
-            assert page.locator(".track-row").count() == 0
-            page.locator('.nav-item[data-view="settings"]').click()
+            assert page.locator("#track-list .track-row").count() == 0
+            page.locator('.nav-item[data-view="more"]').click()
             page.locator("#hidden-tracks button").click()
-            page.locator('.nav-item[data-view="library"]').click()
-            assert page.locator(".track-row").count() == 1
+            page.locator('.nav-item[data-view="audio"]').click()
+            assert page.locator("#track-list .track-row").count() == 1
             page.locator("#select-mode").click()
             page.locator(".track-select").first.check()
             assert page.locator("#selected-count").inner_text() == "1 selected"
             page.locator("#selected-favorite").click()
             assert page.evaluate("JSON.parse(localStorage.ytmp3_favorites).length") == 1
             page.locator("#clear-selection").click()
-            page.locator(".track-meta").first.hover()
+            page.locator("#track-list .track-meta").first.hover()
             page.mouse.down()
             page.wait_for_timeout(650)
             page.mouse.up()
@@ -106,23 +106,62 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator("#folder-filter").select_option("")
             page.locator("#mix-selection").click()
             before = page.evaluate("JSON.parse(localStorage.ytmp3_queue)")
-            page.locator('.nav-item[data-view="queue"]').click()
-            assert page.locator(".drag-handle").count() == 2
-            page.locator(".drag-handle").first.focus()
+            assert page.locator('.nav-item').count() == 4
+            page.locator("#expand-player").click()
+            assert page.locator("#player-queue").is_visible()
+            assert page.locator("#queue-list .drag-handle").count() == 2
+            page.screenshot(path=str(root / "queue.png"), full_page=True)
+            shutil.copy2(root / "queue.png", Path(tempfile.gettempdir()) / "ytmp3-queue-check.png")
+            page.locator("#queue-list .drag-handle").first.focus()
             page.keyboard.press("ArrowDown")
             after = page.evaluate("JSON.parse(localStorage.ytmp3_queue)")
             assert after == before[::-1]
-            first = page.locator(".drag-handle").first.bounding_box()
-            second = page.locator(".drag-handle").nth(1).bounding_box()
+            first = page.locator("#queue-list .drag-handle").first.bounding_box()
+            second = page.locator("#queue-list .drag-handle").nth(1).bounding_box()
             page.mouse.move(first["x"] + 12, first["y"] + 20)
             page.mouse.down()
             page.mouse.move(second["x"] + 12, second["y"] + 20, steps=8)
             page.mouse.up()
             assert page.evaluate("JSON.parse(localStorage.ytmp3_queue)") == before
-            page.locator('.nav-item[data-view="library"]').click()
+            page.locator("#queue-loop").click()
+            assert page.locator("#queue-loop").get_attribute("aria-pressed") == "true"
+            page.locator("#queue-mix").click()
+            assert page.locator("#queue-mix").get_attribute("aria-pressed") == "true"
+            page.locator("#queue-options summary").click()
+            page.locator("#save-queue").click()
+            page.locator("#queue-name").fill("Test queue")
+            page.locator("#save-queue-form button[type=submit]").click()
+            page.locator("#close-player").click()
+            page.locator('.nav-item[data-view="playlists"]').click()
+            assert page.locator(".playlist-card").count() == 1
+            page.locator("#new-playlist").click()
+            page.locator("#new-playlist-name").fill("Another playlist")
+            page.locator("#create-playlist button[type=submit]").click()
+            assert page.locator(".playlist-card").count() == 2
+            page.locator('.nav-item[data-view="more"]').click()
+            page.locator(".about-details summary").click()
+            assert page.get_by_text("Downloads use").is_visible()
+            page.locator('.nav-item[data-view="audio"]').click()
             assert not errors, errors
             page.screenshot(path=str(root / "mobile.png"), full_page=True)
             shutil.copy2(root / "mobile.png", Path(tempfile.gettempdir()) / "ytmp3-mobile-check.png")
+            desktop = browser.new_page(viewport={"width": 1440, "height": 900})
+            desktop.on("pageerror", lambda error: errors.append(str(error)))
+            desktop.goto(f"http://127.0.0.1:{server.server_port}/?key={server.key}")
+            desktop.locator("#track-list .track-row").first.wait_for()
+            desktop.screenshot(path=str(root / "desktop.png"), full_page=True)
+            shutil.copy2(root / "desktop.png", Path(tempfile.gettempdir()) / "ytmp3-desktop-check.png")
+            desktop.locator("#expand-player").click()
+            assert desktop.locator("#player-queue").is_visible()
+            assert desktop.locator("#queue-options").is_visible()
+            desktop.close()
+            shared = browser.new_page()
+            shared.goto(f"http://127.0.0.1:{server.server_port}/?key={server.key}")
+            shared.goto(f"http://127.0.0.1:{server.server_port}/?url=https%3A%2F%2Fexample.org%2Ftone")
+            assert shared.locator('.nav-item[data-view="browse"]').get_attribute("aria-current") == "page"
+            assert shared.locator("#url-input").input_value() == "https://example.org/tone"
+            shared.close()
+            assert not errors, errors
             browser.close()
     finally:
         update_stub.stop()

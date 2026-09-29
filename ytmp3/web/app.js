@@ -11,6 +11,11 @@ const savedQueue = stored("ytmp3_queue", []);
 const savedFavorites = stored("ytmp3_favorites", []);
 const savedHidden = stored("ytmp3_hidden_tracks", []);
 const savedSettings = stored("ytmp3_settings", {});
+function routeView(hash) {
+  const view = hash.replace(/^#/, "");
+  return ({ library: "audio", settings: "more", about: "more", queue: "audio" })[view]
+    || (["browse", "audio", "playlists", "more"].includes(view) ? view : "audio");
+}
 const state = {
   tracks: [],
   trackById: new Map(),
@@ -27,8 +32,7 @@ const state = {
   settings: { theme: "dark", speed: 1, ...savedSettings },
   nativePlayback: {},
   current: -1,
-  view: ["library", "playlists", "queue", "settings", "about"].includes(location.hash.slice(1))
-    ? location.hash.slice(1) : "library",
+  view: routeView(location.hash),
   filter: "",
   folder: "",
   favoritesOnly: false,
@@ -193,10 +197,10 @@ async function refresh() {
 }
 
 function setView(view, push = true) {
-  if (!["library", "playlists", "queue", "settings", "about"].includes(view)) return;
+  if (!["browse", "audio", "playlists", "more"].includes(view)) return;
   if (push && state.view === view) return;
   state.view = view;
-  if (push) history.pushState({ view }, "", view === "library" ? "/" : `#${view}`);
+  if (push) history.pushState({ view }, "", view === "audio" ? "/" : `#${view}`);
   render();
   main.focus({ preventScroll: true });
   scrollTo({ top: 0, behavior: "instant" });
@@ -205,8 +209,7 @@ addEventListener("popstate", () => {
   state.playerOpen = false;
   document.body.classList.remove("player-open");
   $("#expand-player").setAttribute("aria-expanded", "false");
-  setView(["playlists", "queue", "settings", "about"].includes(location.hash.slice(1))
-    ? location.hash.slice(1) : "library", false);
+  setView(routeView(location.hash), false);
 });
 document.querySelectorAll(".nav-item").forEach((button) =>
   button.addEventListener("click", () => setView(button.dataset.view))
@@ -217,30 +220,70 @@ function render() {
     button.classList.toggle("active", button.dataset.view === state.view);
     button.setAttribute("aria-current", button.dataset.view === state.view ? "page" : "false");
   });
-  $("#queue-count").textContent = String(state.queue.length);
   $("#page-title").textContent = state.view[0].toUpperCase() + state.view.slice(1);
-  if (state.view === "library") renderLibrary();
+  if (state.view === "browse") renderBrowse();
+  else if (state.view === "audio") renderAudio();
   else if (state.view === "playlists") renderPlaylists();
-  else if (state.view === "queue") renderQueue();
-  else if (state.view === "settings") renderSettings();
-  else renderAbout();
+  else renderMore();
   updatePlayer();
+  renderQueue();
 }
 
-function renderLibrary() {
+function renderBrowse() {
   main.innerHTML = `<div class="content">
-    <p class="eyebrow">Your space for sound</p>
-    <h1>Your audio, in one place.</h1>
-    <p class="intro">Save from a link you supply, then play from your personal library on ${native ? "this phone" : "this PC or a connected device"}.</p>
     <section class="download-panel" aria-labelledby="add-heading">
-      <form id="url-form"><label id="add-heading" for="url-input">Add from URL or playlist</label>
+      <form id="url-form"><label id="add-heading" for="url-input">Add from link</label>
         <div class="url-form"><input id="url-input" class="url-input" type="url" required
-          inputmode="url" autocomplete="url" placeholder="https://example.org/recording"
-          aria-describedby="url-note"><button class="primary-button" type="submit">Save as MP3</button></div>
-        <p class="form-note" id="url-note">Downloads use yt-dlp. Playlists are limited to 100 items. Save only content you have permission to copy.</p>
+          inputmode="url" autocomplete="url" placeholder="Track or playlist URL"
+          aria-describedby="url-note"><button class="primary-button" type="submit">Save MP3</button></div>
+        <p class="form-note" id="url-note">Powered by yt-dlp · up to 100 playlist items · save content you may copy.</p>
       </form><div id="job-container"></div>
     </section>
-    <div class="section-head"><div><h2>Library</h2><p id="library-count"></p></div></div>
+    <div class="section-head compact-head"><h2>Folders</h2></div>
+    <div id="browse-folders" class="browse-folders"></div>
+  </div>`;
+  const input = $("#url-input");
+  const shared = sessionStorage.getItem("ytmp3_shared_url");
+  if (shared) {
+    state.urlDraft = shared;
+    sessionStorage.removeItem("ytmp3_shared_url");
+  }
+  input.value = state.urlDraft;
+  input.addEventListener("input", (event) => { state.urlDraft = event.target.value; });
+  $("#url-form").addEventListener("submit", submitURL);
+  renderJob();
+  const tracks = state.tracks.filter((track) => !state.hiddenTracks.has(track.id));
+  const folders = [...new Map(tracks.flatMap((track) => [
+    [track.rootFolderId, track.rootFolder], [track.folderId, track.folder]
+  ]).filter(([id]) => id)).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const counts = new Map();
+  for (const track of tracks) {
+    if (track.rootFolderId) counts.set(track.rootFolderId, (counts.get(track.rootFolderId) || 0) + 1);
+    let id = track.folderId;
+    while (id && id !== track.rootFolderId) {
+      counts.set(id, (counts.get(id) || 0) + 1);
+      const slash = id.lastIndexOf("/");
+      if (slash < (track.rootFolderId || "").length) break;
+      id = id.slice(0, slash);
+    }
+  }
+  const list = $("#browse-folders");
+  if (!folders.length) list.innerHTML = '<div class="empty"><strong>No folders yet</strong><p>Include a music folder or save a track.</p></div>';
+  for (const [id, name] of folders) {
+    const row = document.createElement("div"); row.className = "folder-row";
+    const label = document.createElement("button"); label.className = "folder-name";
+    label.textContent = `${name} · ${counts.get(id) || 0}`;
+    label.addEventListener("click", () => { state.folder = id; state.visibleLimit = 100; setView("audio"); });
+    const mix = document.createElement("button"); mix.className = "row-button"; mix.textContent = "Mix";
+    mix.setAttribute("aria-label", `Mix ${name}`);
+    mix.addEventListener("click", () => playCollection(tracks.filter((track) => inFolder(track, id))
+      .map((track) => track.id), true));
+    row.append(label, mix); list.append(row);
+  }
+}
+
+function renderAudio() {
+  main.innerHTML = `<div class="content">
     <div class="library-controls">
       <input id="filter" class="search-input" type="search" placeholder="Search title, artist, album, folder" aria-label="Search library">
       <select id="folder-filter" aria-label="Choose folder"></select>
@@ -251,7 +294,7 @@ function renderLibrary() {
       </select>
       <button class="row-button" id="play-selection" type="button">Play</button>
       <button class="row-button" id="mix-selection" type="button">Mix</button>
-      <button class="row-button" id="favorites-filter" type="button" aria-pressed="false">☆ Favorites</button>
+      <button class="row-button" id="favorites-filter" type="button" aria-label="Favorites only" title="Favorites" aria-pressed="false">☆</button>
       <div id="layout-mode" class="layout-switch" role="group" aria-label="Library layout">
         <span class="layout-thumb" aria-hidden="true"></span>
         <button type="button" data-layout="compact" aria-label="Compact view" title="Compact view">☷</button>
@@ -260,6 +303,7 @@ function renderLibrary() {
       </div>
       <button class="row-button" id="select-mode" type="button" aria-pressed="false">Select</button>
     </div>
+    <p class="result-count" id="library-count"></p>
     <div id="selection-bar" class="selection-bar" hidden><strong id="selected-count"></strong>
       <button class="row-button" id="select-all" type="button">Select visible</button>
       <button class="row-button" id="selected-play" type="button">Play</button>
@@ -271,12 +315,9 @@ function renderLibrary() {
       <button class="row-button" id="selected-hide" type="button">Remove</button>
       <button class="row-button" id="clear-selection" type="button">Done</button>
     </div>
-    <details class="folder-browser"><summary>Browse folders</summary><div id="folder-list"></div></details>
     <div id="track-list" class="track-list"></div>
   </div>`;
   $("#filter").value = state.filter;
-  $("#url-input").value = state.urlDraft;
-  $("#url-input").addEventListener("input", (event) => { state.urlDraft = event.target.value; });
   $("#filter").addEventListener("input", (event) => {
     state.filter = event.target.value;
     state.visibleLimit = 100;
@@ -286,18 +327,6 @@ function renderLibrary() {
     [track.rootFolderId, track.rootFolder], [track.folderId, track.folder]
   ]).filter(([id]) => id)).entries()]
     .sort((a, b) => a[1].localeCompare(b[1]));
-  const folderCounts = new Map();
-  for (const track of state.tracks) {
-    if (track.rootFolderId)
-      folderCounts.set(track.rootFolderId, (folderCounts.get(track.rootFolderId) || 0) + 1);
-    let folderId = track.folderId;
-    while (folderId && folderId !== track.rootFolderId) {
-      folderCounts.set(folderId, (folderCounts.get(folderId) || 0) + 1);
-      const slash = folderId.lastIndexOf("/");
-      if (slash < track.rootFolderId.length) break;
-      folderId = folderId.slice(0, slash);
-    }
-  }
   const folderSelect = $("#folder-filter");
   folderSelect.add(new Option("All folders", ""));
   folders.forEach(([id, name]) => folderSelect.add(new Option(name, id)));
@@ -357,29 +386,6 @@ function renderLibrary() {
   $("#clear-selection").addEventListener("click", () => {
     state.selectedTracks.clear(); state.selectionMode = false; renderTracks();
   });
-  const folderList = $("#folder-list");
-  folders.forEach(([id, name]) => {
-    const row = document.createElement("div"); row.className = "folder-row";
-    const count = folderCounts.get(id) || 0;
-    const label = document.createElement("button"); label.className = "folder-name";
-    label.textContent = `${name} · ${count}`;
-    label.addEventListener("click", () => {
-      state.folder = id; folderSelect.value = id; state.visibleLimit = 100; renderTracks();
-    });
-    const mix = document.createElement("button"); mix.className = "row-button";
-    mix.textContent = "Mix"; mix.setAttribute("aria-label", `Mix ${name}`);
-    mix.addEventListener("click", () => playCollection(state.tracks.filter((track) =>
-      !state.hiddenTracks.has(track.id) && inFolder(track, id)).map((track) => track.id), true));
-    row.append(label, mix); folderList.append(row);
-  });
-  $("#url-form").addEventListener("submit", submitURL);
-  const shared = sessionStorage.getItem("ytmp3_shared_url");
-  if (shared) {
-    state.urlDraft = shared;
-    $("#url-input").value = shared;
-    sessionStorage.removeItem("ytmp3_shared_url");
-  }
-  renderJob();
   renderTracks();
 }
 
@@ -404,10 +410,10 @@ function renderTracks() {
     const box = document.createElement("div");
     box.className = "empty";
     const strong = document.createElement("strong");
-    strong.textContent = state.tracks.length ? "No matching files" : "Your library is ready";
+    strong.textContent = state.tracks.length ? "No matching files" : "No audio yet";
     const note = document.createElement("p");
     note.textContent = state.tracks.length ? "Try a different filter."
-      : "Supply a URL above to save your first MP3.";
+      : "Add a music folder or save a link in Browse.";
     box.append(strong, note);
     list.append(box);
     return;
@@ -457,17 +463,17 @@ $("#confirm-hide").addEventListener("click", () => {
   });
   localStorage.setItem("ytmp3_hidden_tracks", JSON.stringify([...state.hiddenTracks]));
   $("#hide-dialog").close();
-  if (state.view === "library") renderTracks();
-  toast("Removed from Library. Restore in Settings.");
+  if (state.view === "audio") renderTracks();
+  toast("Removed from Audio. Restore in More.");
 });
 
 function toggleFavorite(id) {
   state.favorites = state.favorites.includes(id)
     ? state.favorites.filter((item) => item !== id) : [...state.favorites, id];
   localStorage.setItem("ytmp3_favorites", JSON.stringify(state.favorites));
-  if (state.view === "library") renderTracks();
+  if (state.view === "audio") renderTracks();
   else if (state.view === "playlists") renderPlaylists();
-  else if (state.view === "queue") renderQueue();
+  renderQueue();
 }
 
 function reorderQueue(from, to) {
@@ -478,6 +484,19 @@ function reorderQueue(from, to) {
   else if (from > state.current && to <= state.current) state.current++;
   persistLists(); syncNativeQueue(); renderQueue();
 }
+function removeQueueIndex(index) {
+  const wasCurrent = index === state.current;
+  state.queue.splice(index, 1);
+  if (!state.queue.length) {
+    state.current = -1; audio.pause();
+    if (native) native.command("stop", 0);
+  } else if (wasCurrent) {
+    state.current = Math.min(index, state.queue.length - 1);
+    playTrack(state.queue[state.current], state.current);
+    return;
+  } else if (index < state.current) state.current--;
+  persistLists(); syncNativeQueue(); renderQueue(); updatePlayer();
+}
 
 function reorderPlaylist(list, from, to) {
   if (to < 0 || to >= list.tracks.length || from === to) return;
@@ -485,11 +504,12 @@ function reorderPlaylist(list, from, to) {
   persistLists(); renderPlaylists();
 }
 
-function dragHandle(row, index, onDrop, label) {
+function dragHandle(row, index, onDrop, label, numbered = false) {
   const handle = document.createElement("button");
   handle.type = "button";
   handle.className = "drag-handle";
-  handle.textContent = "⠿";
+  handle.textContent = numbered ? String(index + 1) : "⠿";
+  if (numbered) handle.classList.add("numbered");
   handle.setAttribute("aria-label", `Drag to reorder ${label}; arrow keys also work`);
   let pointer = null;
   let target = index;
@@ -560,8 +580,8 @@ function trackMenu(track, context, index, list) {
   menu.addEventListener("toggle", () => {
     if (!menu.open) return;
     const rect = summary.getBoundingClientRect();
-    const below = $("#player").getBoundingClientRect().top - rect.bottom;
-    const above = rect.top - document.querySelector(".topbar").getBoundingClientRect().bottom;
+    const below = (state.playerOpen ? innerHeight - 16 : $("#player").getBoundingClientRect().top) - rect.bottom;
+    const above = rect.top - (state.playerOpen ? 16 : document.querySelector(".topbar").getBoundingClientRect().bottom);
     const height = Math.min(options.scrollHeight, 440, innerHeight * .62);
     const width = Math.min(220, innerWidth - 32);
     menu.classList.toggle("align-left", rect.right - width < 8 && rect.left + width <= innerWidth - 8);
@@ -579,7 +599,7 @@ function trackMenu(track, context, index, list) {
   addAction("Play", () => {
     if (context === "library") state.queue = visibleTracks().map((item) => item.id);
     if (context === "playlist") state.queue = list.tracks.filter((id) => state.trackById.has(id));
-    playTrack(track.id);
+    playTrack(track.id, context === "queue" ? index : undefined);
   });
   addAction("View info", () => showTrackInfo(track));
   addAction("Add to playlist", () => openPlaylistPicker(track.id));
@@ -588,11 +608,11 @@ function trackMenu(track, context, index, list) {
   if (context === "library") {
     addAction("Play next", () => {
       state.queue.splice(Math.max(0, state.current + 1), 0, track.id);
-      persistLists(); syncNativeQueue(); toast("Added next");
+      persistLists(); syncNativeQueue(); renderQueue(); toast("Added next");
     });
     addAction("Add to queue", () => {
       state.queue.push(track.id); persistLists(); syncNativeQueue();
-      $("#queue-count").textContent = String(state.queue.length); toast("Added to queue");
+      renderQueue(); toast("Added to queue");
     });
     addAction("Remove from Library", () => confirmHideTracks([track.id]));
   }
@@ -601,11 +621,7 @@ function trackMenu(track, context, index, list) {
     addAction("Share file", () => native.shareTrack(track.id));
     addAction("Set as ringtone", () => native.setRingtone(track.id));
   } else addAction("Share file", () => shareTrack(track));
-  if (context === "queue") addAction("Remove from queue", () => {
-    state.queue.splice(index, 1);
-    if (state.current >= index) state.current--;
-    persistLists(); syncNativeQueue(); renderQueue();
-  });
+  if (context === "queue") addAction("Remove from queue", () => removeQueueIndex(index));
   if (context === "playlist") addAction("Remove from playlist", () => {
     list.tracks.splice(index, 1); persistLists(); renderPlaylists();
   });
@@ -637,12 +653,12 @@ async function shareTrack(track) {
 function trackRow(track, context = "library", index = -1, list = null) {
   const row = document.createElement("div");
   row.className = "track-row";
-  if (currentTrack()?.id === track.id) row.classList.add("current");
+  if (context === "queue" ? index === state.current : currentTrack()?.id === track.id) row.classList.add("current");
   if (context !== "library") {
     row.classList.add("reorderable");
     row.dataset.reorderIndex = String(index);
     row.append(dragHandle(row, index, context === "queue"
-      ? reorderQueue : (from, to) => reorderPlaylist(list, from, to), titleOf(track)));
+      ? reorderQueue : (from, to) => reorderPlaylist(list, from, to), titleOf(track), context === "queue"));
   } else if (state.selectionMode) {
     row.classList.add("selectable");
     const check = document.createElement("input");
@@ -654,10 +670,16 @@ function trackRow(track, context = "library", index = -1, list = null) {
     row.classList.toggle("selected", check.checked);
   }
   row.append(trackArt(track));
-  const meta = document.createElement("div"); meta.className = "track-meta";
+  const meta = document.createElement(context === "queue" ? "button" : "div"); meta.className = "track-meta";
+  if (context === "queue") {
+    meta.type = "button"; meta.classList.add("queue-play");
+    meta.setAttribute("aria-label", `Play ${titleOf(track)} at position ${index + 1}`);
+    meta.addEventListener("click", () => playTrack(track.id, index));
+  }
   const title = document.createElement("strong"); title.textContent = titleOf(track);
   const sub = document.createElement("span");
-  sub.textContent = [track.artist, track.album, track.duration ? formatTime(track.duration) : null]
+  sub.textContent = [context === "queue" && index === state.current ? "Now playing" : null,
+    track.artist, track.album, track.duration ? formatTime(track.duration) : null]
     .filter(Boolean).join(" · ") || track.folder || "MP3";
   meta.append(title, sub);
   row.append(meta, trackMenu(track, context, index, list));
@@ -795,17 +817,14 @@ $("#playlist-picker").addEventListener("submit", (event) => {
 });
 
 function renderPlaylists() {
-  main.innerHTML = `<div class="content"><p class="eyebrow">Your collections</p><h1>Playlists</h1>
-    <p class="intro">Keep collections on this device. Add tracks from Library, save the queue, or import an M3U file of tracks already in this library.</p>
-    <form id="create-playlist" class="inline-form"><input id="new-playlist-name" class="url-input" type="text"
-      maxlength="80" placeholder="New playlist name" aria-label="New playlist name" required>
-      <button class="primary-button" type="submit">Create</button></form>
-    <div class="section-actions"><button class="row-button" id="import-playlist" type="button">Import M3U playlist</button>
-      <input id="playlist-file" type="file" accept=".m3u,.m3u8" hidden></div>
+  main.innerHTML = `<div class="content"><div class="section-head compact-head">
+    <div class="section-actions"><button class="row-button" id="new-playlist" type="button">New</button>
+      <button class="row-button" id="import-playlist" type="button">Import M3U</button></div></div>
+      <input id="playlist-file" type="file" accept=".m3u,.m3u8" hidden>
     <div id="playlist-list" class="playlist-list"></div><div id="playlist-detail"></div></div>`;
-  $("#create-playlist").addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (createPlaylist($("#new-playlist-name").value)) renderPlaylists();
+  $("#new-playlist").addEventListener("click", () => {
+    $("#create-playlist-dialog").showModal();
+    $("#new-playlist-name").focus();
   });
   $("#import-playlist").addEventListener("click", () => native ? native.pickPlaylist() : $("#playlist-file").click());
   $("#playlist-file").addEventListener("change", async (event) => {
@@ -813,7 +832,7 @@ function renderPlaylists() {
     if (file) importPlaylistFile(file.name, await file.text());
   });
   const listBox = $("#playlist-list");
-  if (!state.playlists.length) listBox.innerHTML = '<div class="empty"><strong>No playlists yet</strong><p>Create one above or add a library track.</p></div>';
+  if (!state.playlists.length) listBox.innerHTML = '<div class="empty"><strong>No playlists yet</strong><p>Create one with New.</p></div>';
   for (const list of state.playlists) {
     const button = document.createElement("button");
     button.type = "button";
@@ -828,9 +847,11 @@ function renderPlaylists() {
   const detail = $("#playlist-detail");
   detail.innerHTML = `<div class="section-head"><div><h2 id="selected-name"></h2><p id="selected-count"></p></div>
     <div class="section-actions"><button class="row-button" id="playlist-play" type="button">Play</button>
-    <button class="row-button" id="playlist-queue" type="button">Add to queue</button></div></div>
-    <form id="rename-playlist" class="inline-form"><input id="rename-value" class="url-input" maxlength="80" aria-label="Rename playlist" required>
-      <button class="row-button" type="submit">Rename</button><button class="row-button" id="delete-playlist" type="button">Delete</button></form>
+    <button class="row-button" id="playlist-queue" type="button">Queue</button>
+    <details class="playlist-options"><summary class="row-button">Edit</summary>
+      <form id="rename-playlist" class="inline-form"><input id="rename-value" class="url-input" maxlength="80" aria-label="Rename playlist" required>
+        <button class="row-button" type="submit">Rename</button><button class="row-button" id="delete-playlist" type="button">Delete</button></form>
+    </details></div></div>
     <div class="track-list" id="playlist-tracks"></div>`;
   $("#selected-name").textContent = selected.name;
   $("#selected-count").textContent = `${selected.tracks.length} tracks · use arrows to reorder`;
@@ -882,28 +903,27 @@ function renderPlaylists() {
   });
 }
 
+$("#cancel-create-playlist").addEventListener("click", () => $("#create-playlist-dialog").close());
+$("#create-playlist").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!createPlaylist($("#new-playlist-name").value)) return;
+  $("#create-playlist-dialog").close();
+  $("#new-playlist-name").value = "";
+  if (state.view === "playlists") renderPlaylists();
+});
+
 function renderQueue() {
-  main.innerHTML = `<div class="content"><p class="eyebrow">Coming up</p><h1>Queue</h1>
-    <p class="intro">Play through the files you chose. Shuffle and repeat are in the player controls.</p>
-    <div class="section-actions"><button id="clear-queue" class="row-button" type="button">Clear queue</button></div>
-    <form id="save-queue" class="inline-form"><input id="queue-name" class="url-input" type="text" maxlength="80"
-      placeholder="Name this queue" aria-label="Playlist name" required><button class="row-button" type="submit">Save as playlist</button></form>
-    <div id="queue-list" class="track-list"></div></div>`;
-  $("#clear-queue").disabled = !state.queue.length;
-  $("#clear-queue").addEventListener("click", () => {
-    state.queue = []; state.current = -1; audio.pause();
-    if (native) native.command("stop", 0);
-    persistLists(); render();
-  });
-  $("#save-queue").addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (createPlaylist($("#queue-name").value, state.queue)) {
-      toast("Queue saved as playlist"); setView("playlists");
-    }
-  });
   const list = $("#queue-list");
+  $("#queue-count").textContent = `${state.queue.length} ${state.queue.length === 1 ? "track" : "tracks"}`;
+  $("#clear-queue").disabled = !state.queue.length;
+  $("#save-queue").disabled = !state.queue.length;
+  $("#queue-mix").disabled = !state.queue.length;
+  $("#queue-loop").disabled = !state.queue.length;
+  $("#queue-mix").setAttribute("aria-pressed", String(state.shuffle));
+  $("#queue-loop").setAttribute("aria-pressed", String(state.repeat === "all"));
+  list.replaceChildren();
   if (!state.queue.length) {
-    list.innerHTML = '<div class="empty"><strong>Nothing queued yet</strong><p>Play a library file or add it to the queue.</p></div>';
+    list.innerHTML = '<div class="empty"><strong>Queue is empty</strong><p>Play a track from Audio.</p></div>';
     return;
   }
   state.queue.forEach((id, index) => {
@@ -914,15 +934,41 @@ function renderQueue() {
       missing.textContent = "Unavailable track ";
       const remove = document.createElement("button"); remove.type = "button"; remove.className = "row-button";
       remove.textContent = "Remove";
-      remove.addEventListener("click", () => { state.queue.splice(index, 1); persistLists(); renderQueue(); });
+      remove.addEventListener("click", () => removeQueueIndex(index));
       missing.append(remove); list.append(missing);
     }
   });
 }
+$("#clear-queue").addEventListener("click", () => {
+  state.queue = []; state.current = -1; audio.pause();
+  if (native) native.command("stop", 0);
+  persistLists(); renderQueue(); updatePlayer();
+  $("#queue-options").open = false;
+});
+$("#save-queue").addEventListener("click", () => {
+  $("#save-queue-dialog").showModal();
+  $("#queue-name").focus();
+});
+$("#cancel-save-queue").addEventListener("click", () => $("#save-queue-dialog").close());
+$("#save-queue-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (createPlaylist($("#queue-name").value, state.queue)) {
+    $("#save-queue-dialog").close();
+    $("#queue-name").value = "";
+    toast("Queue saved as playlist");
+  }
+});
+$("#queue-mix").addEventListener("click", () => {
+  if (!state.queue.length) return;
+  setShuffle(true);
+  if (state.current < 0 || state.queue.length === 1)
+    playTrack(state.queue[Math.floor(Math.random() * state.queue.length)]);
+  else move(1);
+});
+$("#queue-loop").addEventListener("click", () => setRepeat(state.repeat === "all" ? "off" : "all"));
 
-function renderSettings() {
-  main.innerHTML = `<div class="content"><p class="eyebrow">Make it yours</p><h1>Settings</h1>
-    <p class="intro">These preferences stay on this device.</p>
+function renderMore() {
+  main.innerHTML = `<div class="content">
     <section class="settings-card"><h2>Interface</h2>
       <label class="setting-row">Appearance <select id="theme-setting"><option value="system">Follow device</option>
         <option value="dark">Dark</option><option value="light">Light</option></select></label>
@@ -930,18 +976,20 @@ function renderSettings() {
         <option value="0.75">0.75×</option><option value="1">1×</option><option value="1.25">1.25×</option>
         <option value="1.5">1.5×</option><option value="2">2×</option></select></label>
     </section><section class="settings-card"><h2>Media library</h2>
-      <p>${native ? "Choose folders whose MP3 files should appear alongside downloads. Subfolders are included." : "Start the PC app with --include FOLDER for each additional media folder. Subfolders are included; --library PATH changes the download folder."}</p>
       <div class="section-actions"><button id="add-folder" class="row-button" type="button" ${native ? "" : "hidden"}>Add folder</button>
         <button id="rescan" class="row-button" type="button">Rescan library</button></div>
       <div id="folder-list"></div><h3>Hidden tracks</h3>
-      <p>Removing a track from Library hides it here without deleting the MP3.</p>
       <div id="hidden-tracks"></div></section>
     <section class="settings-card"><h2>App updates</h2>
       <p id="update-status">Check for a newer ytmp3 app version.</p>
       <p id="update-notes" hidden></p>
       <div class="section-actions"><button id="check-update" class="row-button" type="button">Check now</button>
         <button id="install-update" class="primary-button" type="button" hidden></button></div>
-    </section></div>`;
+    </section><details class="settings-card about-details"><summary><h2>About ytmp3</h2></summary>
+      <p>Downloads use <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener noreferrer">yt-dlp</a> and ffmpeg. ytmp3 provides the library and player.</p>
+      <p>Save content you are authorized to copy.</p>
+      ${native ? '<p>Android includes <a href="https://github.com/yausername/youtubedl-android">youtubedl-android</a> (<a href="/licenses/youtubedl-android-GPL-3.0.txt">GPL-3.0 license</a>).</p>' : ''}
+    </details></div>`;
   $("#theme-setting").value = state.settings.theme;
   $("#speed-setting").value = String(state.settings.speed);
   $("#theme-setting").addEventListener("change", (event) => {
@@ -966,7 +1014,7 @@ function renderSettings() {
       const remove = document.createElement("button"); remove.type = "button"; remove.className = "row-button";
       remove.textContent = "Remove"; remove.setAttribute("aria-label", `Remove folder ${folder.name}`);
       remove.addEventListener("click", () => {
-        native.removeFolder(folder.uri); refresh(); renderSettings();
+        native.removeFolder(folder.uri); refresh(); renderMore();
       });
       row.append(name, remove); $("#folder-list").append(row);
     }
@@ -980,12 +1028,12 @@ function renderSettings() {
     restore.addEventListener("click", () => {
       state.hiddenTracks.delete(id);
       localStorage.setItem("ytmp3_hidden_tracks", JSON.stringify([...state.hiddenTracks]));
-      renderSettings();
+      renderMore();
     });
     row.append(name, restore); $("#hidden-tracks").append(row);
   }
 }
-window.ytmp3FoldersChanged = () => { refresh(); if (state.view === "settings") renderSettings(); };
+window.ytmp3FoldersChanged = () => { refresh(); if (state.view === "more") renderMore(); };
 
 function renderUpdateCard() {
   const status = $("#update-status");
@@ -1015,7 +1063,7 @@ function receiveAppUpdate(result) {
   renderUpdateCard();
   if (result.error) {
     if (!state.updateCheckSilent) toast(result.error);
-  } else if (result.available) toast(`ytmp3 ${result.version} is available in Settings`);
+  } else if (result.available) toast(`ytmp3 ${result.version} is available in More`);
   else if (!state.updateCheckSilent) toast("ytmp3 is up to date");
 }
 window.ytmp3UpdateResult = receiveAppUpdate;
@@ -1054,22 +1102,6 @@ async function pollAppUpdate() {
     if (state.updateJob.state === "working") setTimeout(pollAppUpdate, 2000);
     else toast(state.updateJob.state === "done" ? "Update installed. Restart ytmp3." : "Update failed. Try again later.");
   } catch { toast("Could not check update progress."); }
-}
-
-function renderAbout() {
-  main.innerHTML = `<div class="content"><p class="eyebrow">Under the hood</p><h1>About ytmp3</h1>
-    <p class="intro">A URL-to-MP3 wrapper and a personal player.</p>
-    <div class="about-card"><h2>Powered by yt-dlp</h2>
-      <p><a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener noreferrer">yt-dlp</a>
-      performs site extraction and downloading. ffmpeg converts audio to MP3. ytmp3 adds the
-      personal library, interface, player and file handling.</p>
-      <p>Only download content you are authorized to copy. This app does not supply a media catalog or licenses.</p>
-      ${native ? '<p>Android bundles <a href="https://github.com/yausername/youtubedl-android">youtubedl-android</a>. <a href="/licenses/youtubedl-android-GPL-3.0.txt">Read its GPL-3.0 license</a>.</p>' : ''}
-      <h2>Player controls</h2>
-      <ul><li>Play and pause, next and previous</li><li>Seek, volume and speed</li>
-      <li>Shuffle and repeat</li><li>Save a library file to the current device</li></ul>
-      <p>${native ? "Files are stored on this phone. Save file exports a copy to your Music folder." : "Files are stored on the computer running the ytmp3 server. Keep that computer running for phone playback."}</p>
-    </div></div>`;
 }
 
 function importPlaylistFile(name, text) {
@@ -1175,16 +1207,13 @@ function playCollection(ids, mix = false) {
       [state.queue[i], state.queue[j]] = [state.queue[j], state.queue[i]];
     }
   }
-  state.shuffle = false;
-  if (native) native.command("shuffle", 0);
-  $("#shuffle").setAttribute("aria-pressed", "false");
-  $("#shuffle").setAttribute("aria-label", "Shuffle off");
+  setShuffle(false);
   playTrack(state.queue[0]);
 }
-function playTrack(id) {
+function playTrack(id, index) {
   if (!state.queue.includes(id)) state.queue = state.tracks.map((item) => item.id);
   state.queue = state.queue.filter((item) => state.trackById.has(item));
-  state.current = state.queue.indexOf(id);
+  state.current = state.queue[index] === id ? index : state.queue.indexOf(id);
   const track = currentTrack();
   if (!track) return;
   persistLists();
@@ -1219,11 +1248,13 @@ function seekBy(seconds) {
 }
 function togglePlay() {
   if (native) {
-    if (!state.nativePlayback.id && state.tracks.length) return playTrack(state.tracks[0].id);
+    if (!state.nativePlayback.id && (state.queue.length || state.tracks.length))
+      return playTrack(state.queue[0] || state.tracks[0].id, 0);
     native.command(state.nativePlayback.playing ? "pause" : "play", 0);
     return;
   }
-  if (!audio.src && state.tracks.length) return playTrack(state.tracks[0].id);
+  if (!audio.src && (state.queue.length || state.tracks.length))
+    return playTrack(state.queue[0] || state.tracks[0].id, 0);
   if (audio.paused) audio.play().catch(() => toast("Playback could not start."));
   else audio.pause();
 }
@@ -1245,7 +1276,7 @@ function move(direction, fromEnd = false) {
   }
   state.current = next;
   persistLists();
-  playTrack(state.queue[next]);
+  playTrack(state.queue[next], next);
 }
 function updatePlayer() {
   const track = currentTrack();
@@ -1269,7 +1300,7 @@ function updatePlayer() {
   $("#seek").value = duration ? Math.round(position / duration * 1000) : 0;
 }
 function openPlayer() {
-  if (!matchMedia("(max-width: 839px)").matches || state.playerOpen) return;
+  if (state.playerOpen) return;
   state.playerOpen = true;
   document.body.classList.add("player-open");
   $("#expand-player").setAttribute("aria-expanded", "true");
@@ -1284,19 +1315,28 @@ $("#close-player").addEventListener("click", closePlayer);
 $("#play").addEventListener("click", togglePlay);
 $("#previous").addEventListener("click", () => move(-1));
 $("#next").addEventListener("click", () => move(1));
-$("#shuffle").addEventListener("click", () => {
-  state.shuffle = !state.shuffle;
-  if (native) native.command("shuffle", state.shuffle ? 1 : 0);
+function updatePlaybackModes() {
   $("#shuffle").setAttribute("aria-pressed", String(state.shuffle));
   $("#shuffle").setAttribute("aria-label", state.shuffle ? "Shuffle on" : "Shuffle off");
-});
-$("#repeat").addEventListener("click", () => {
-  state.repeat = { off: "all", all: "one", one: "off" }[state.repeat];
-  if (native) native.command("repeat", { off: 0, one: 1, all: 2 }[state.repeat]);
   $("#repeat").dataset.active = String(state.repeat !== "off");
   $("#repeat").setAttribute("aria-label", `Repeat ${state.repeat}`);
+  $("#queue-mix").setAttribute("aria-pressed", String(state.shuffle));
+  $("#queue-loop").setAttribute("aria-pressed", String(state.repeat === "all"));
+}
+function setShuffle(enabled) {
+  state.shuffle = enabled;
+  if (native) native.command("shuffle", enabled ? 1 : 0);
+  updatePlaybackModes();
+}
+function setRepeat(mode) {
+  state.repeat = mode;
+  if (native) native.command("repeat", { off: 0, one: 1, all: 2 }[mode]);
+  updatePlaybackModes();
   toast(`Repeat ${state.repeat}`);
-});
+}
+$("#shuffle").addEventListener("click", () => setShuffle(!state.shuffle));
+$("#repeat").addEventListener("click", () =>
+  setRepeat({ off: "all", all: "one", one: "off" }[state.repeat]));
 $("#speed").addEventListener("click", () => {
   const speeds = [1, 1.25, 1.5, 2, 0.75];
   state.settings.speed = speeds[(speeds.indexOf(state.settings.speed) + 1) % speeds.length];
@@ -1333,22 +1373,16 @@ if (native) setInterval(() => {
   try {
     const playback = JSON.parse(native.playback());
     if (!playback.id && !state.nativePlayback.id) return;
-    const changed = playback.id !== state.nativePlayback.id;
+    const changed = playback.id !== state.nativePlayback.id ||
+      (playback.id && playback.index !== state.current);
     state.nativePlayback = playback;
     if (playback.id) state.current = playback.index;
-    if (typeof playback.shuffle === "boolean") {
-      state.shuffle = playback.shuffle;
-      $("#shuffle").setAttribute("aria-pressed", String(state.shuffle));
-      $("#shuffle").setAttribute("aria-label", state.shuffle ? "Shuffle on" : "Shuffle off");
-    }
-    if ([0, 1, 2].includes(playback.repeat)) {
-      state.repeat = ["off", "one", "all"][playback.repeat];
-      $("#repeat").dataset.active = String(state.repeat !== "off");
-      $("#repeat").setAttribute("aria-label", `Repeat ${state.repeat}`);
-    }
+    if (typeof playback.shuffle === "boolean") state.shuffle = playback.shuffle;
+    if ([0, 1, 2].includes(playback.repeat)) state.repeat = ["off", "one", "all"][playback.repeat];
+    updatePlaybackModes();
     updatePlayer();
-    if (changed && state.view === "library") renderTracks();
-    if (changed && state.view === "queue") renderQueue();
+    if (changed && state.view === "audio") renderTracks();
+    if (changed) renderQueue();
   } catch { /* The controller is reconnecting. */ }
 }, 500);
 
@@ -1356,7 +1390,7 @@ $("#theme-button").addEventListener("click", () => {
   const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   state.settings.theme = theme;
   persistSettings();
-  if (state.view === "settings") renderSettings();
+  if (state.view === "more") renderMore();
 });
 matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
   if (state.settings.theme === "system") persistSettings();
@@ -1367,8 +1401,8 @@ function receiveShared(text) {
   const received = text?.match(/https?:\/\/\S+/)?.[0];
   if (!received) return;
   state.urlDraft = received;
-  state.view = "library";
-  history.replaceState(null, "", "/");
+  state.view = "browse";
+  history.replaceState(null, "", "#browse");
   render();
   $("#url-input").focus();
   toast("Shared link ready to save");
@@ -1378,8 +1412,8 @@ const shared = new URLSearchParams(location.search);
 const received = shared.get("url") || shared.get("text")?.match(/https?:\/\/\S+/)?.[0];
 if (received) {
   sessionStorage.setItem("ytmp3_shared_url", received);
-  history.replaceState(null, "", "/");
-  state.view = "library";
+  history.replaceState(null, "", "#browse");
+  state.view = "browse";
   toast("Shared link ready to save");
 }
 const lastUpdateCheck = Number(localStorage.getItem("ytmp3_update_checked_at") || 0);

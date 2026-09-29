@@ -6,6 +6,16 @@ touchable on phone, efficient on PC. Tone: clear, capable, quiet. One teal accen
 light and dark themes, system sans with tabular numerals, subtle motion. The
 interface is a yt-dlp wrapper and player; source credit remains visible.
 
+## Screen space rule
+
+Put the task content and the controls used with it at the top of each screen.
+The phone's visible area is scarce: count how many tracks are visible before
+adding headers, cards, forms, or explanatory text. Do not repeat the page title
+inside its content when the navigation bar already names it. Keep secondary
+actions in a short menu or dialog. Explain a feature when it is first needed,
+or in optional onboarding, instead of leaving a permanent introduction above
+the user's music. Apply this rule to new screens and other apps in this project.
+
 References:
 
 - [VLC desktop playback controls](https://docs.videolan.me/vlc-user/desktop/3.0/en/gettingstarted/desktopoverview/windows_and_linux/playback_controls.html):

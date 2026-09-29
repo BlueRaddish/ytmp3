@@ -1,5 +1,5 @@
 {
-  "version": "0.5.0",
-  "android_apk_url": "https://drive.google.com/open?id=1jHd_-wNap4C1jkPs7hyLkr_U0GsP7ZPr",
-  "notes": "Compact, list, and tile views; track menus, bulk selection, drag ordering, Android sharing and ringtones, and app update checks."
+  "version": "0.6.0",
+  "android_apk_url": "https://drive.google.com/open?id=1ijuSa-ZOt3-GSpVY1PBeOVswsBWxfsMr",
+  "notes": "Browse, Audio, Playlists, and More navigation; compact Now Playing queue with drag ordering, Mix, Loop queue, and tucked-away playlist saving."
 }

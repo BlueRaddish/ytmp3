@@ -1,5 +1,5 @@
 {
-  "version": "0.6.2",
-  "android_apk_url": "https://drive.google.com/open?id=1d9btxdD7TfrUbEqOd84HOKrmsaa16QI5",
-  "notes": "Compact symbol actions across main screens. Tap the Android media notification to return to ytmp3 during background playback."
+  "version": "0.6.3",
+  "android_apk_url": "https://drive.google.com/open?id=1vZJ2aSqEzfjI2dA9OJel54h8Z8iQPiMN",
+  "notes": "Fixed Now Playing banner and full-width scrolling queue, large-cover song view, playlist icon, and new app logo."
 }

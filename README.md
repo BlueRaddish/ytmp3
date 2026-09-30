@@ -4,7 +4,7 @@ ytmp3 is a [yt-dlp](https://github.com/yt-dlp/yt-dlp) wrapper and personal MP3 p
 
 Use it only with content you are authorized to download. A public URL, or a site appearing in yt-dlp's supported-sites list, does not by itself grant permission to copy its content. Check the source's terms and the rights in the recording before downloading. ytmp3 does not provide a music catalog or licenses to third-party media.
 
-The app has four destinations: **Browse** for link downloads and folders, **Audio** for tracks, **Playlists** for saved collections, and **More** for settings and credits. Tap the bottom Now Playing bar to open the ordered queue. Its current-track banner stays fixed while the queue scrolls; tap that banner for large cover art and playback controls. Drag a track's handle to reorder it, use **Mix** to jump among queued tracks, toggle **Loop queue**, or open queue options to save it as a playlist or clear it. Pull downward past the top of the queue to open the song view, then pull downward on its artwork to return to the main screen. The Back and Close buttons provide the same destinations.
+The app has four destinations: **Browse** for link downloads and folders, **Audio** for tracks, **Playlists** for saved collections, and **More** for settings and credits. Tap the bottom Now Playing bar to open the ordered queue. Its current-track banner stays fixed while the queue scrolls; tap that banner for large cover art and playback controls. Drag a track's handle to reorder it, use **Mix** to jump among queued tracks, toggle **Loop queue**, or open queue options to save it as a playlist or clear it. Swipe up on the current-track banner or past the queue's end to open the song view. Swipe down from the song view to return to the queue, then down past the queue's top to collapse to the Now Playing bar. Swipe up from the song view to close the player directly. Back and Close buttons remain available.
 
 Swipe left or right across a main screen to move between the four destinations, or use a horizontal trackpad gesture on PC. Each destination remembers its scroll position. In the expanded song view, swipe the artwork left or right to skip tracks. Vertical scrolling and the player's pull gestures remain available.
 
@@ -13,6 +13,7 @@ Browse lists every file in the accessible library. Narrow the list by folder or 
 The last library listing opens from a local cache, including after an app restart. A rescan runs in the background and refreshes the listing when files change. Use **More → Rescan** to request another scan.
 
 Main-screen actions use symbols: the triangle plays, crossed arrows mix, the star filters favorites, and the checked square selects tracks. The buttons have action names for screen readers and tooltips on PC.
+When selecting tracks, the X at the start of the sticky action bar cancels selection. Tap outside a three-dot menu or press Escape to close it.
 
 The [logo exploration](docs/LOGO.md) records the early drafts and Claude Opus concepts. Grille is the current Android and web app icon.
 

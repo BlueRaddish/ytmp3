@@ -15,7 +15,7 @@ const iconPaths = {
   star: '<path d="m12 2 3 6.5 7 .9-5.1 5 1.2 7-6.1-3.3-6.1 3.3 1.2-7L2 9.4l7-.9z"/>',
   share: '<path d="M12 15V3m-4 4 4-4 4 4M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
   remove: '<circle cx="12" cy="12" r="9"/><path d="M7 12h10"/>',
-  done: '<path d="m4 12 5 5L20 6"/>',
+  close: '<path d="M5 5l14 14M19 5 5 19"/>',
   edit: '<path d="m4 20 4-.8L20 7.2 16.8 4 4.8 16zM14.5 6.3l3.2 3.2"/>',
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 6.7M20 4v7h-7"/>'
 };
@@ -247,24 +247,62 @@ async function refresh() {
 const views = ["browse", "audio", "playlists", "more"];
 const viewScroll = new Map();
 history.scrollRestoration = "manual";
-function setView(view, push = true) {
+let viewSlide = null;
+function stopViewSlide() {
+  if (!viewSlide) return;
+  viewSlide.incoming.cancel();
+  viewSlide.outgoing.cancel();
+  viewSlide.frame.remove();
+  viewSlide = null;
+}
+function setView(view, push = true, startX = 0) {
   if (!views.includes(view) || state.view === view) return;
+  stopViewSlide();
+  main.getAnimations().forEach((animation) => animation.cancel());
   const direction = Math.sign(views.indexOf(view) - views.indexOf(state.view));
+  const motion = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let frame, old;
+  if (motion) {
+    const rect = main.getBoundingClientRect();
+    frame = document.createElement("div");
+    frame.className = "view-slide-frame";
+    frame.style.left = `${rect.left - startX}px`;
+    old = document.createElement("div");
+    old.className = "view-slide-old";
+    old.style.top = `${rect.top}px`;
+    old.style.width = `${rect.width}px`;
+    old.append(...main.childNodes);
+    frame.append(old);
+  }
+  main.style.transform = "";
+  main.style.willChange = "";
   viewScroll.set(state.view, scrollY);
+  state.selectedTracks.clear();
+  state.selectionMode = false;
   state.view = view;
   if (push) history.pushState({ view }, "", view === "audio" ? "/" : `#${view}`);
-  render();
+  render(false);
   main.focus({ preventScroll: true });
   scrollTo({ top: viewScroll.get(view) || 0, behavior: "instant" });
-  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    main.getAnimations().forEach((animation) => animation.cancel());
-    main.animate([
-      { opacity: .72, transform: `translateX(${direction * 18}px)` },
-      { opacity: 1, transform: "translateX(0)" }
-    ], { duration: 210, easing: "cubic-bezier(.2,.8,.2,1)" });
+  if (frame) {
+    old.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+    old.inert = true;
+    old.setAttribute("aria-hidden", "true");
+    document.body.append(frame);
+    const timing = { duration: 290, easing: "cubic-bezier(.22,.75,.2,1)" };
+    const distance = main.getBoundingClientRect().width * direction;
+    const outgoing = old.animate([
+      { transform: `translateX(${startX}px)` }, { transform: `translateX(${-distance}px)` }
+    ], timing);
+    const incoming = main.animate([
+      { transform: `translateX(${distance}px)` }, { transform: "translateX(0)" }
+    ], timing);
+    viewSlide = { frame, incoming, outgoing };
+    incoming.onfinish = () => { if (viewSlide?.frame === frame) stopViewSlide(); };
   }
 }
 addEventListener("popstate", () => {
+  if (state.playerOpen) animatePlayerExit();
   state.playerOpen = false;
   document.body.classList.remove("player-open");
   $("#player").dataset.panel = "queue";
@@ -280,9 +318,17 @@ function canSwipeView(target) {
     target instanceof Element && !target.closest("input, select, textarea, button, a, summary, " +
       ".drag-handle, .tile-menu, .playlist-list, .selection-bar, [contenteditable]");
 }
-function adjacentView(direction) {
+function adjacentView(direction, startX = 0) {
   const next = views[views.indexOf(state.view) + direction];
-  if (next) setView(next);
+  if (next) setView(next, true, startX);
+  else settleViewDrag(startX);
+}
+function settleViewDrag(x) {
+  main.style.transform = "";
+  main.style.willChange = "";
+  if (x && !matchMedia("(prefers-reduced-motion: reduce)").matches)
+    main.animate([{ transform: `translateX(${x}px)` }, { transform: "translateX(0)" }],
+      { duration: 180, easing: "ease-out" });
 }
 let viewTouch = null;
 $(".workspace").addEventListener("touchstart", (event) => {
@@ -290,7 +336,7 @@ $(".workspace").addEventListener("touchstart", (event) => {
   if (event.touches.length !== 1 || !canSwipeView(event.target)) return;
   const { clientX: x, clientY: y } = event.touches[0];
   if (x < 24 || x > innerWidth - 24) return;
-  viewTouch = { x, y, axis: null };
+  viewTouch = { x, y, axis: null, dragX: 0 };
 }, { passive: true });
 $(".workspace").addEventListener("touchmove", (event) => {
   if (!viewTouch || event.touches.length !== 1) return;
@@ -298,20 +344,30 @@ $(".workspace").addEventListener("touchmove", (event) => {
   const dy = event.touches[0].clientY - viewTouch.y;
   if (!viewTouch.axis && Math.max(Math.abs(dx), Math.abs(dy)) > 18)
     viewTouch.axis = Math.abs(dx) > Math.abs(dy) * 1.3 ? "horizontal" : "vertical";
-  if (viewTouch.axis === "horizontal") event.preventDefault();
+  if (viewTouch.axis === "horizontal") {
+    event.preventDefault();
+    const next = views[views.indexOf(state.view) + (dx < 0 ? 1 : -1)];
+    viewTouch.dragX = Math.max(-innerWidth * .35, Math.min(innerWidth * .35,
+      dx * (next ? .65 : .15)));
+    main.style.willChange = "transform";
+    main.style.transform = `translateX(${viewTouch.dragX}px)`;
+  }
 }, { passive: false });
 $(".workspace").addEventListener("touchend", (event) => {
   if (!viewTouch || event.changedTouches.length !== 1) return;
-  const { x, y, axis } = viewTouch;
+  const { x, y, axis, dragX } = viewTouch;
   viewTouch = null;
   const dx = event.changedTouches[0].clientX - x;
   const dy = event.changedTouches[0].clientY - y;
   if (axis !== "horizontal" || state.selectionMode || Math.abs(dx) < 80 ||
-      Math.abs(dx) < Math.abs(dy) * 1.3) return;
+      Math.abs(dx) < Math.abs(dy) * 1.3) { settleViewDrag(dragX); return; }
   event.preventDefault();
-  adjacentView(dx < 0 ? 1 : -1);
+  adjacentView(dx < 0 ? 1 : -1, dragX);
 }, { passive: false });
-$(".workspace").addEventListener("touchcancel", () => { viewTouch = null; });
+$(".workspace").addEventListener("touchcancel", () => {
+  settleViewDrag(viewTouch?.dragX || 0);
+  viewTouch = null;
+});
 let wheelTravel = 0;
 let wheelAt = 0;
 let wheelCooldown = 0;
@@ -330,7 +386,7 @@ $(".workspace").addEventListener("wheel", (event) => {
   wheelCooldown = now + 550;
 }, { passive: false });
 
-function render() {
+function render(includeQueue = true) {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === state.view);
     button.setAttribute("aria-current", button.dataset.view === state.view ? "page" : "false");
@@ -341,7 +397,7 @@ function render() {
   else if (state.view === "playlists") renderPlaylists();
   else renderMore();
   updatePlayer();
-  renderQueue();
+  if (includeQueue) renderQueue();
   iconize(main);
 }
 
@@ -526,7 +582,9 @@ function renderAudio() {
       <button class="row-button symbol-button" id="select-mode" data-icon="select" type="button" aria-label="Select tracks" title="Select tracks" aria-pressed="false">Select</button>
     </div>
     <p class="result-count" id="library-count"></p>
-    <div id="selection-bar" class="selection-bar" hidden><strong id="selected-count"></strong>
+    <div id="selection-bar" class="selection-bar" hidden>
+      <button class="row-button symbol-button" id="clear-selection" data-icon="close" type="button" aria-label="Cancel selection" title="Cancel selection">Close</button>
+      <strong id="selected-count"></strong>
       <button class="row-button symbol-button" id="select-all" data-icon="all" type="button" aria-label="Select all visible tracks" title="Select all visible">Select visible</button>
       <button class="row-button symbol-button" id="selected-play" data-icon="play" type="button" aria-label="Play selected tracks" title="Play selected">Play</button>
       <button class="row-button symbol-button" id="selected-mix" data-icon="mix" type="button" aria-label="Mix selected tracks" title="Mix selected">Mix</button>
@@ -535,7 +593,6 @@ function renderAudio() {
       <button class="row-button symbol-button" id="selected-favorite" data-icon="star" type="button" aria-label="Favorite selected tracks" title="Favorite">Favorite</button>
       <button class="row-button symbol-button" id="selected-share" data-icon="share" type="button" aria-label="Share selected tracks" title="Share" ${native ? "" : "hidden"}>Share</button>
       <button class="row-button symbol-button" id="selected-hide" data-icon="remove" type="button" aria-label="Remove selected tracks from Audio" title="Remove from Audio">Remove</button>
-      <button class="row-button symbol-button" id="clear-selection" data-icon="done" type="button" aria-label="Finish selecting" title="Done">Done</button>
     </div>
     <div id="track-list" class="track-list"></div>
   </div>`;
@@ -790,6 +847,25 @@ function showTrackInfo(track) {
   dialog.showModal();
 }
 $("#close-info").addEventListener("click", () => $("#info-dialog").close());
+
+document.addEventListener("pointerdown", (event) => {
+  document.querySelectorAll(".tile-menu[open], .queue-options[open]").forEach((menu) => {
+    if (!menu.contains(event.target)) menu.open = false;
+  });
+}, true);
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || document.querySelector("dialog[open]")) return;
+  const menus = document.querySelectorAll(".tile-menu[open], .queue-options[open]");
+  if (menus.length) {
+    menus.forEach((menu) => { menu.open = false; });
+    event.preventDefault();
+  } else if (state.selectionMode && state.view === "audio") {
+    state.selectedTracks.clear();
+    state.selectionMode = false;
+    renderTracks();
+    event.preventDefault();
+  }
+});
 
 function trackMenu(track, context, index, list) {
   const menu = document.createElement("details");
@@ -1531,16 +1607,68 @@ function openPlayer() {
   if (state.playerOpen) return;
   state.playerOpen = true;
   document.body.classList.add("player-open");
-  setPlayerPanel("queue");
+  setPlayerPanel("queue", false);
   $("#queue-list").scrollTop = 0;
   history.pushState({ view: state.view, player: true }, "", "#player");
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
+    $("#player").animate([
+      { transform: "translateY(100%)" }, { transform: "translateY(0)" }
+    ], { duration: 300, easing: "cubic-bezier(.22,.75,.2,1)" });
   $("#close-player").focus();
 }
-function setPlayerPanel(panel) {
-  $("#player").dataset.panel = panel;
+let panelSlide = null;
+function stopPanelSlide() {
+  if (!panelSlide) return;
+  panelSlide.animation.cancel();
+  panelSlide.ghost.remove();
+  panelSlide = null;
+}
+function playerGhost() {
+  const ghost = $("#player").cloneNode(true);
+  ghost.querySelector("#audio")?.remove();
+  ghost.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+  ghost.removeAttribute("id");
+  ghost.classList.add("player-panel-ghost");
+  ghost.inert = true;
+  ghost.setAttribute("aria-hidden", "true");
+  return ghost;
+}
+function animatePlayerExit() {
+  stopPanelSlide();
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const exit = document.createElement("div");
+  exit.className = "player-exit player-open";
+  exit.append(playerGhost());
+  document.body.append(exit);
+  const animation = exit.animate([
+    { transform: "translateY(0)" }, { transform: "translateY(100%)" }
+  ], { duration: 310, easing: "cubic-bezier(.4,0,.8,.3)" });
+  animation.onfinish = () => exit.remove();
+}
+function setPlayerPanel(panel, animate = true) {
+  const player = $("#player");
+  if (player.dataset.panel === panel) return;
+  stopPanelSlide();
+  player.getAnimations().forEach((animation) => animation.cancel());
+  const motion = animate && state.playerOpen &&
+    !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const ghost = motion ? playerGhost() : null;
+  const queueScroll = $("#queue-list").scrollTop;
+  player.dataset.panel = panel;
   $("#expand-player").setAttribute("aria-expanded", String(panel === "song"));
   $("#expand-player").setAttribute("aria-label", panel === "song" ? "Back to queue" : "Open song view");
   $("#back-to-queue").hidden = panel !== "song";
+  if (ghost) {
+    ghost.style.zIndex = panel === "song" ? "9" : "11";
+    document.body.append(ghost);
+    ghost.querySelector(".queue-list").scrollTop = queueScroll;
+    const timing = { duration: 310, easing: "cubic-bezier(.22,.75,.2,1)" };
+    const animation = panel === "song"
+      ? player.animate([{ transform: "translateY(100%)" }, { transform: "translateY(0)" }], timing)
+      : ghost.animate([{ transform: "translateY(0)" }, { transform: "translateY(100%)" }], timing);
+    panelSlide = { animation, ghost };
+    animation.onfinish = () => { if (panelSlide?.ghost === ghost) stopPanelSlide(); };
+  }
 }
 function closePlayer() {
   if (state.playerOpen) history.back();
@@ -1554,23 +1682,38 @@ $("#close-player").addEventListener("click", closePlayer);
 let pullDistance = 0;
 let pullTime = 0;
 let pullCooldown = 0;
+function playerCanScroll() {
+  const player = $("#player");
+  return ["auto", "scroll"].includes(getComputedStyle(player).overflowY) &&
+    player.scrollHeight > player.clientHeight + 1;
+}
 $("#player").addEventListener("wheel", (event) => {
-  if (!state.playerOpen || event.deltaY >= 0 || event.target.closest("input, .drag-handle, .tile-menu")) return;
+  if (!state.playerOpen || event.target.closest("input, button:not(#expand-player), .drag-handle, .tile-menu")) return;
   const panel = $("#player").dataset.panel;
-  if (panel === "queue" && !event.target.closest("#queue-list")) return;
-  const excess = panel === "queue" ? -event.deltaY - $("#queue-list").scrollTop : -event.deltaY;
-  if (excess <= 0) { pullDistance = 0; return; }
+  const list = $("#queue-list");
+  let action;
+  if (panel === "queue") {
+    if (event.deltaY < 0 && (event.target.closest("#expand-player") ||
+        (event.target.closest("#queue-list") && list.scrollTop <= 1))) action = "song";
+    else if (event.deltaY > 0 && event.target.closest("#expand-player")) action = "close";
+  } else {
+    const player = $("#player");
+    const limit = player.scrollHeight - player.clientHeight;
+    if (event.deltaY > 0 && (!playerCanScroll() || player.scrollTop >= limit - 1)) action = "queue";
+    else if (event.deltaY < 0 && (!playerCanScroll() || player.scrollTop <= 1)) action = "close";
+  }
+  if (!action) { pullDistance = 0; return; }
   const now = Date.now();
   if (now < pullCooldown) return;
   if (now - pullTime > 450) pullDistance = 0;
   pullTime = now;
-  pullDistance += excess;
+  pullDistance += Math.abs(event.deltaY);
   if (pullDistance < 90) return;
   event.preventDefault();
   pullDistance = 0;
   pullCooldown = now + 600;
-  if (panel === "queue") setPlayerPanel("song");
-  else closePlayer();
+  if (action === "close") closePlayer();
+  else setPlayerPanel(action);
 }, { passive: false });
 let touchStart = null;
 $("#player").addEventListener("touchstart", (event) => {
@@ -1583,11 +1726,12 @@ $("#player").addEventListener("touchstart", (event) => {
   if (panel === "queue" && !banner && !event.target.closest("#queue-list")) return;
   if (panel === "song" && event.target.closest("button:not(#expand-player)")) return;
   touchStart = { x: event.touches[0].clientX, y: event.touches[0].clientY,
-    scrollTop: list.scrollTop, panel, banner };
+    scrollTop: list.scrollTop, scrollBottom: list.scrollHeight - list.clientHeight - list.scrollTop,
+    panel, banner };
 }, { passive: true });
 $("#player").addEventListener("touchend", (event) => {
   if (!touchStart || event.changedTouches.length !== 1) return;
-  const { x, y, scrollTop, panel, banner } = touchStart;
+  const { x, y, scrollTop, scrollBottom, panel, banner } = touchStart;
   touchStart = null;
   const across = event.changedTouches[0].clientX - x;
   const distance = event.changedTouches[0].clientY - y;
@@ -1598,11 +1742,23 @@ $("#player").addEventListener("touchend", (event) => {
     }
     return;
   }
-  if (panel === "queue" && ((banner && distance < -80) ||
-      (!banner && distance - scrollTop > 90 && $("#queue-list").scrollTop <= 1))) {
+  if (panel === "queue") {
+    const list = $("#queue-list");
+    if ((banner && distance < -80) ||
+        (!banner && -distance - scrollBottom > 90 &&
+          list.scrollTop >= list.scrollHeight - list.clientHeight - 1)) {
+      event.preventDefault();
+      setPlayerPanel("song");
+    } else if ((banner && distance > 90) ||
+        (!banner && distance - scrollTop > 90 && list.scrollTop <= 1)) {
+      event.preventDefault();
+      closePlayer();
+    }
+  } else if (distance > 100 && (!playerCanScroll() || $("#player").scrollTop <= 1)) {
     event.preventDefault();
-    setPlayerPanel("song");
-  } else if (panel === "song" && distance > 100) {
+    setPlayerPanel("queue");
+  } else if (distance < -110 && (!playerCanScroll() || $("#player").scrollTop >=
+      $("#player").scrollHeight - $("#player").clientHeight - 1)) {
     event.preventDefault();
     closePlayer();
   }

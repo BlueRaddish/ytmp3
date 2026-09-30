@@ -29,8 +29,10 @@ name, and a desktop tooltip. Keep explicit text in confirmation dialogs and menu
 In the expanded player, keep the current track fixed above an independently
 scrolling, edge-to-edge queue. The current-track banner opens a focused song
 view with large cover art and playback controls. Pull beyond the queue's top
-to reach that view; a further vertical swipe leaves the player. Preserve Back
-and Close buttons for precise navigation. Queue and playlist rows use a grip
+to collapse the player. Swipe upward on the banner or beyond the queue's end
+to enter the song view; pull down to return to the queue or up to close the player.
+Animate the sheet between these states while the previous view remains visible.
+Preserve Back and Close buttons for precise navigation. Queue and playlist rows use a grip
 instead of visible position numbers.
 Swipe horizontally between Browse, Audio, Playlists, and More on touchscreens;
 a horizontal trackpad gesture does the same on PC. Keep each screen's vertical
@@ -38,6 +40,9 @@ scroll position. Let vertical scrolling, playlist strips, controls, and row
 reordering retain their own gestures. In the song view, horizontal artwork
 swipes move to the previous or next track. Respect reduced-motion preferences
 when animating a screen change.
+Move the prior main screen out as the next screen slides in across its full width.
+Keep a sticky X first in the selection bar so long-press selection is easy to cancel.
+Dismiss track and queue action menus when a user taps outside or presses Escape.
 
 References:
 
@@ -98,6 +103,8 @@ the same interface, but requires a separate on-device check.
 - [Claude Opus logo concepts](logo-claude-opus/contact-sheet.png): four candidates at launcher and navigation sizes. Grille is the current app icon.
 - [Android v0.6.5](shots/emulator-v0.6.5.png): Browse after an in-place install and background library refresh.
 - [Android v0.6.6](shots/emulator-v0.6.6.png): Audio with the Grille icon and the preserved two-track library.
+- [Android v0.6.7 slide](shots/emulator-v0.6.7-slide.png): outgoing Audio and incoming Playlists during a real emulator swipe.
+- [Android v0.6.7 selection](shots/emulator-v0.6.7-selection.png): the sticky cancel button stays at the start of multi-selection actions.
 
 ## Android device check
 
@@ -130,3 +137,12 @@ Playlists and back. In the expanded song view, an artwork swipe moved from the
 vertical-scroll exclusion, playlist-strip exclusion, horizontal wheel input,
 per-screen scroll restoration, and the player swipe. The Galaxy S10 was not
 connected for this release.
+
+For v0.6.7, the Android 35 emulator kept the same two-track library after an
+in-place install. A recorded touch swipe showed Audio sliding out as Playlists
+entered. Touch gestures opened the song view from the queue, returned to the
+queue, collapsed to the mini player, and also exited directly from the song
+view. A long press showed the cancel X first; an outside tap dismissed a track
+menu. The Galaxy S10 accepted an in-place upgrade from an older debug build
+and retained its existing test track. Its short screen timeout and lock screen
+prevented a touch gesture check on the S10 during this pass.

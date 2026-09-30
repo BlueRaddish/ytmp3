@@ -105,8 +105,8 @@ water-like, Grille is the safest fallback for small sizes. Shelf communicates
 | `a-drop.svg`, `b-fork.svg`, `c-shelf.svg`, `d-grille.svg` | 512 × 512 launcher tiles. Standard SVG with no scripts, fonts or external assets. |
 | `contact-sheet.svg` | All four at 128 / 48 / 24 px and as 24 px nav glyphs, on light and dark. It uses system fonts for labels only. |
 
-Nothing here changes the app's installed icon. The nav glyphs in the contact
-sheet show each mark without its tile, with `viewBox="80 80 352 352"` and
-`currentColor`. That is how a chosen concept would enter the app's symbol set.
+The installed Grille icon is rendered from `d-grille.svg`. The nav glyphs in the
+contact sheet show each mark without its tile, with `viewBox="80 80 352 352"`
+and `currentColor`; they are comparison samples, not the app's navigation icons.
 
-The [PNG contact sheet](contact-sheet.png) was rendered in Edge and visually checked after Claude's session. Drop was chosen for the current app icon; the other three remain alternatives.
+The [PNG contact sheet](contact-sheet.png) was rendered in Edge and visually checked after Claude's session. The user subsequently chose Grille for the current app icon; the other three remain alternatives.

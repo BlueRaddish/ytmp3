@@ -244,14 +244,25 @@ async function refresh() {
   }
 }
 
+const views = ["browse", "audio", "playlists", "more"];
+const viewScroll = new Map();
+history.scrollRestoration = "manual";
 function setView(view, push = true) {
-  if (!["browse", "audio", "playlists", "more"].includes(view)) return;
-  if (push && state.view === view) return;
+  if (!views.includes(view) || state.view === view) return;
+  const direction = Math.sign(views.indexOf(view) - views.indexOf(state.view));
+  viewScroll.set(state.view, scrollY);
   state.view = view;
   if (push) history.pushState({ view }, "", view === "audio" ? "/" : `#${view}`);
   render();
   main.focus({ preventScroll: true });
-  scrollTo({ top: 0, behavior: "instant" });
+  scrollTo({ top: viewScroll.get(view) || 0, behavior: "instant" });
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    main.getAnimations().forEach((animation) => animation.cancel());
+    main.animate([
+      { opacity: .72, transform: `translateX(${direction * 18}px)` },
+      { opacity: 1, transform: "translateX(0)" }
+    ], { duration: 210, easing: "cubic-bezier(.2,.8,.2,1)" });
+  }
 }
 addEventListener("popstate", () => {
   state.playerOpen = false;
@@ -264,6 +275,60 @@ addEventListener("popstate", () => {
 document.querySelectorAll(".nav-item").forEach((button) =>
   button.addEventListener("click", () => setView(button.dataset.view))
 );
+function canSwipeView(target) {
+  return !state.playerOpen && !state.selectionMode && !document.querySelector("dialog[open]") &&
+    target instanceof Element && !target.closest("input, select, textarea, button, a, summary, " +
+      ".drag-handle, .tile-menu, .playlist-list, .selection-bar, [contenteditable]");
+}
+function adjacentView(direction) {
+  const next = views[views.indexOf(state.view) + direction];
+  if (next) setView(next);
+}
+let viewTouch = null;
+$(".workspace").addEventListener("touchstart", (event) => {
+  viewTouch = null;
+  if (event.touches.length !== 1 || !canSwipeView(event.target)) return;
+  const { clientX: x, clientY: y } = event.touches[0];
+  if (x < 24 || x > innerWidth - 24) return;
+  viewTouch = { x, y, axis: null };
+}, { passive: true });
+$(".workspace").addEventListener("touchmove", (event) => {
+  if (!viewTouch || event.touches.length !== 1) return;
+  const dx = event.touches[0].clientX - viewTouch.x;
+  const dy = event.touches[0].clientY - viewTouch.y;
+  if (!viewTouch.axis && Math.max(Math.abs(dx), Math.abs(dy)) > 18)
+    viewTouch.axis = Math.abs(dx) > Math.abs(dy) * 1.3 ? "horizontal" : "vertical";
+  if (viewTouch.axis === "horizontal") event.preventDefault();
+}, { passive: false });
+$(".workspace").addEventListener("touchend", (event) => {
+  if (!viewTouch || event.changedTouches.length !== 1) return;
+  const { x, y, axis } = viewTouch;
+  viewTouch = null;
+  const dx = event.changedTouches[0].clientX - x;
+  const dy = event.changedTouches[0].clientY - y;
+  if (axis !== "horizontal" || state.selectionMode || Math.abs(dx) < 80 ||
+      Math.abs(dx) < Math.abs(dy) * 1.3) return;
+  event.preventDefault();
+  adjacentView(dx < 0 ? 1 : -1);
+}, { passive: false });
+$(".workspace").addEventListener("touchcancel", () => { viewTouch = null; });
+let wheelTravel = 0;
+let wheelAt = 0;
+let wheelCooldown = 0;
+$(".workspace").addEventListener("wheel", (event) => {
+  if (!canSwipeView(event.target) || event.ctrlKey || event.altKey || event.shiftKey ||
+      event.metaKey || Math.abs(event.deltaX) < Math.abs(event.deltaY) * 1.4) return;
+  const now = Date.now();
+  if (now < wheelCooldown) return;
+  if (now - wheelAt > 350 || Math.sign(wheelTravel) !== Math.sign(event.deltaX)) wheelTravel = 0;
+  wheelAt = now;
+  wheelTravel += event.deltaX * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? innerWidth : 1);
+  if (Math.abs(wheelTravel) < 100) return;
+  event.preventDefault();
+  adjacentView(wheelTravel > 0 ? 1 : -1);
+  wheelTravel = 0;
+  wheelCooldown = now + 550;
+}, { passive: false });
 
 function render() {
   document.querySelectorAll(".nav-item").forEach((button) => {
@@ -1524,8 +1589,15 @@ $("#player").addEventListener("touchend", (event) => {
   if (!touchStart || event.changedTouches.length !== 1) return;
   const { x, y, scrollTop, panel, banner } = touchStart;
   touchStart = null;
+  const across = event.changedTouches[0].clientX - x;
   const distance = event.changedTouches[0].clientY - y;
-  if (Math.abs(event.changedTouches[0].clientX - x) > Math.abs(distance) * 0.7) return;
+  if (Math.abs(across) > Math.abs(distance) * 1.3) {
+    if (panel === "song" && Math.abs(across) > 90) {
+      event.preventDefault();
+      move(across < 0 ? 1 : -1);
+    }
+    return;
+  }
   if (panel === "queue" && ((banner && distance < -80) ||
       (!banner && distance - scrollTop > 90 && $("#queue-list").scrollTop <= 1))) {
     event.preventDefault();

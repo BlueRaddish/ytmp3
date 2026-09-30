@@ -32,6 +32,12 @@ view with large cover art and playback controls. Pull beyond the queue's top
 to reach that view; a further vertical swipe leaves the player. Preserve Back
 and Close buttons for precise navigation. Queue and playlist rows use a grip
 instead of visible position numbers.
+Swipe horizontally between Browse, Audio, Playlists, and More on touchscreens;
+a horizontal trackpad gesture does the same on PC. Keep each screen's vertical
+scroll position. Let vertical scrolling, playlist strips, controls, and row
+reordering retain their own gestures. In the song view, horizontal artwork
+swipes move to the previous or next track. Respect reduced-motion preferences
+when animating a screen change.
 
 References:
 
@@ -89,8 +95,9 @@ the same interface, but requires a separate on-device check.
 - [Phone queue](shots/phone-player-browser.png): 390 px viewport, fixed current track and full-width queue.
 - [Phone song](shots/phone-song-browser.png): 390 px viewport, large cover and transport controls.
 - [Tablet queue, light](shots/tablet-queue-light.png): 768 px viewport, light theme.
-- [Claude Opus logo concepts](logo-claude-opus/contact-sheet.png): four candidates at launcher and navigation sizes. Drop is the current app icon.
+- [Claude Opus logo concepts](logo-claude-opus/contact-sheet.png): four candidates at launcher and navigation sizes. Grille is the current app icon.
 - [Android v0.6.5](shots/emulator-v0.6.5.png): Browse after an in-place install and background library refresh.
+- [Android v0.6.6](shots/emulator-v0.6.6.png): Audio with the Grille icon and the preserved two-track library.
 
 ## Android device check
 
@@ -115,3 +122,11 @@ Adding and removing a test MP3 between app launches updated the listing through
 the background scan. A browser check confirmed that a persisted library
 snapshot appears when a refresh request fails. The Galaxy S10 was disconnected,
 so this release has not been checked on that phone.
+
+For v0.6.6, the Android 35 emulator kept the same two tracks after an in-place
+install and displayed the Grille icon. A horizontal swipe moved Audio to
+Playlists and back. In the expanded song view, an artwork swipe moved from the
+90-second test track to the next track. The browser interaction check covered
+vertical-scroll exclusion, playlist-strip exclusion, horizontal wheel input,
+per-screen scroll restoration, and the player swipe. The Galaxy S10 was not
+connected for this release.

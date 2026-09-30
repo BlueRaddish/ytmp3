@@ -58,6 +58,35 @@ with tempfile.TemporaryDirectory() as temp:
             assert page.locator("#track-list .track-row").count() == 2
             assert page.locator("#track-list .track-art img").count() == 2
             assert page.locator("#track-list .track-art img").first.evaluate("e => e.naturalWidth") > 0
+            swipe = """({selector, dx, dy = 0, x = 180}) => {
+              const target = document.querySelector(selector);
+              const send = (type, px, py) => {
+                const touch = new Touch({identifier: 8, target, clientX: px, clientY: py});
+                target.dispatchEvent(new TouchEvent(type, {bubbles: true, cancelable: true,
+                  touches: type === 'touchend' ? [] : [touch], changedTouches: [touch]}));
+              };
+              send('touchstart', x, 350);
+              send('touchmove', x + dx, 350 + dy);
+              send('touchend', x + dx, 350 + dy);
+            }"""
+            page.evaluate(swipe, {"selector": "#track-list .track-meta", "dx": 12, "dy": 150})
+            assert page.locator("#page-title").inner_text() == "Audio"
+            page.evaluate(swipe, {"selector": "#track-list .track-meta", "dx": -140})
+            assert page.locator("#page-title").inner_text() == "Playlists"
+            page.evaluate(swipe, {"selector": "#playlist-list", "dx": -140})
+            assert page.locator("#page-title").inner_text() == "Playlists"
+            page.evaluate(swipe, {"selector": ".content", "dx": 140})
+            assert page.locator("#page-title").inner_text() == "Audio"
+            page.locator("#main").evaluate("e => e.style.minHeight = '1800px'")
+            page.evaluate("scrollTo(0, 600)")
+            assert page.evaluate("scrollY") >= 500
+            page.locator("#main .content").dispatch_event("wheel", {"deltaX": 130, "deltaY": 0})
+            assert page.locator("#page-title").inner_text() == "Playlists"
+            page.evaluate(swipe, {"selector": ".content", "dx": 140})
+            assert page.locator("#page-title").inner_text() == "Audio"
+            assert page.evaluate("scrollY") >= 500
+            page.locator("#main").evaluate("e => e.style.minHeight = ''")
+            page.evaluate("scrollTo(0, 0)")
             page.locator("#sort-tracks").select_option("artist")
             page.get_by_role("button", name="Tile view").click()
             assert page.locator("#track-list").get_attribute("data-layout") == "tiles"
@@ -143,6 +172,9 @@ with tempfile.TemporaryDirectory() as temp:
             assert page.locator("#player").get_attribute("data-panel") == "song"
             assert not page.locator("#player-queue").is_visible()
             assert page.locator(".player-art").bounding_box()["width"] > 200
+            current_before_swipe = page.evaluate("state.current")
+            page.evaluate(swipe, {"selector": ".player-art", "dx": -120})
+            assert page.evaluate("state.current") != current_before_swipe
             assert page.locator("#close-player").is_visible()
             page.screenshot(path=str(root / "song.png"), full_page=True)
             shutil.copy2(root / "song.png", Path(tempfile.gettempdir()) / "ytmp3-song-check.png")

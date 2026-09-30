@@ -6,13 +6,15 @@ Use it only with content you are authorized to download. A public URL, or a site
 
 The app has four destinations: **Browse** for link downloads and folders, **Audio** for tracks, **Playlists** for saved collections, and **More** for settings and credits. Tap the bottom Now Playing bar to open the ordered queue. Its current-track banner stays fixed while the queue scrolls; tap that banner for large cover art and playback controls. Drag a track's handle to reorder it, use **Mix** to jump among queued tracks, toggle **Loop queue**, or open queue options to save it as a playlist or clear it. Pull downward past the top of the queue to open the song view, then pull downward on its artwork to return to the main screen. The Back and Close buttons provide the same destinations.
 
+Swipe left or right across a main screen to move between the four destinations, or use a horizontal trackpad gesture on PC. Each destination remembers its scroll position. In the expanded song view, swipe the artwork left or right to skip tracks. Vertical scrolling and the player's pull gestures remain available.
+
 Browse lists every file in the accessible library. Narrow the list by folder or filename and tap a row to play from that selection. Paste a URL to see a title, source, and artwork preview when yt-dlp can extract them; the preview does not save or play the link. The Save button starts the download after you decide to keep it.
 
 The last library listing opens from a local cache, including after an app restart. A rescan runs in the background and refreshes the listing when files change. Use **More → Rescan** to request another scan.
 
 Main-screen actions use symbols: the triangle plays, crossed arrows mix, the star filters favorites, and the checked square selects tracks. The buttons have action names for screen readers and tooltips on PC.
 
-The [logo exploration](docs/LOGO.md) records the three drafts and the selected list-plus-play mark used by the Android and web apps.
+The [logo exploration](docs/LOGO.md) records the early drafts and Claude Opus concepts. Grille is the current Android and web app icon.
 
 ## PC app
 

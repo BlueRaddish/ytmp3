@@ -1,5 +1,5 @@
 {
-  "version": "0.6.6",
-  "android_apk_url": "https://drive.google.com/open?id=1mc5WUZMrgeKcipThjXvFw2mN7uUCSwiR",
-  "notes": "Claude Opus Grille icon. Swipe between Browse, Audio, Playlists, and More; each screen remembers its scroll position. Swipe the expanded artwork to skip tracks. Horizontal trackpad gestures work on PC."
+  "version": "0.6.7",
+  "android_apk_url": "https://drive.google.com/open?id=1LXghPnUQx-wroSeRPe0f2Hgd5K_ssUJu",
+  "notes": "Smoother tab swipes and queue-to-song transitions. Swipe up from the queue to the song view, down to return, and up from the song view to close. Selection cancel stays visible; track menus close when tapped outside."
 }

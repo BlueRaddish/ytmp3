@@ -1,5 +1,5 @@
 {
-  "version": "0.6.4",
-  "android_apk_url": "https://drive.google.com/open?id=1lgWX7W5xaN_-Ohi7W7BHLsEYi-lvUQ-7",
-  "notes": "Browse all accessible media with folder and filename filters. Link previews show yt-dlp metadata when available."
+  "version": "0.6.5",
+  "android_apk_url": "https://drive.google.com/open?id=1oDwaolVN32dtDGF5ECMB7PA3V55Fmn1k",
+  "notes": "Faster cached library startup with background refresh. Pull through the queue and artwork to navigate the player. New Claude Opus Drop icon."
 }

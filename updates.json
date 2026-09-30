@@ -1,5 +1,5 @@
 {
-  "version": "0.6.5",
-  "android_apk_url": "https://drive.google.com/open?id=1oDwaolVN32dtDGF5ECMB7PA3V55Fmn1k",
-  "notes": "Faster cached library startup with background refresh. Pull through the queue and artwork to navigate the player. New Claude Opus Drop icon."
+  "version": "0.6.6",
+  "android_apk_url": "https://drive.google.com/open?id=1mc5WUZMrgeKcipThjXvFw2mN7uUCSwiR",
+  "notes": "Claude Opus Grille icon. Swipe between Browse, Audio, Playlists, and More; each screen remembers its scroll position. Swipe the expanded artwork to skip tracks. Horizontal trackpad gestures work on PC."
 }

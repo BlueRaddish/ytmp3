@@ -167,11 +167,34 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator("#save-queue").click()
             page.locator("#queue-name").fill("Test queue")
             page.locator("#save-queue-form button[type=submit]").click()
+            page.evaluate("""() => {
+              const list = document.querySelector('#queue-list');
+              const row = list.querySelector('.queue-play');
+              const spacer = document.createElement('div');
+              spacer.style.height = '1000px'; list.append(spacer);
+              list.scrollTop = 50;
+              const start = new Touch({identifier: 1, target: row, clientX: 160, clientY: 300});
+              row.dispatchEvent(new TouchEvent('touchstart', {bubbles: true, touches: [start], changedTouches: [start]}));
+              list.scrollTop = 0;
+              const end = new Touch({identifier: 1, target: row, clientX: 160, clientY: 470});
+              row.dispatchEvent(new TouchEvent('touchend', {bubbles: true, touches: [], changedTouches: [end]}));
+              spacer.remove();
+            }""")
+            assert page.locator("#player").get_attribute("data-panel") == "song"
+            page.evaluate("""() => {
+              const art = document.querySelector('.player-art');
+              const start = new Touch({identifier: 2, target: art, clientX: 160, clientY: 300});
+              art.dispatchEvent(new TouchEvent('touchstart', {bubbles: true, touches: [start], changedTouches: [start]}));
+              const end = new Touch({identifier: 2, target: art, clientX: 160, clientY: 440});
+              art.dispatchEvent(new TouchEvent('touchend', {bubbles: true, touches: [], changedTouches: [end]}));
+            }""")
+            page.locator("body.player-open").wait_for(state="detached")
+            page.locator("#expand-player").click()
             page.locator("#queue-list").dispatch_event("wheel", {"deltaY": -120})
             assert page.locator("#player").get_attribute("data-panel") == "song"
             page.wait_for_timeout(650)
             page.locator("#player").dispatch_event("wheel", {"deltaY": -120})
-            page.wait_for_function("!document.body.classList.contains('player-open')")
+            page.locator("body.player-open").wait_for(state="detached")
             page.locator('.nav-item[data-view="playlists"]').click()
             assert page.locator('.nav-item[data-view="playlists"] .nav-list-icon').count() == 1
             assert page.locator(".playlist-card").count() == 1
@@ -251,6 +274,45 @@ with tempfile.TemporaryDirectory() as temp:
             shared.locator("#confirm-hide").click()
             assert shared.locator("#browse-tracks .track-row").count() == 1
             shared.close()
+            cached = browser.new_page(viewport={"width": 390, "height": 844})
+            cached.add_init_script("""(() => {
+              if (location.hostname === '127.0.0.1') localStorage.setItem('ytmp3_snapshot', JSON.stringify({
+                at: Date.now() - 60000, tracks: [{id: 'cached.mp3', title: 'Cached song',
+                  folder: 'Music', folderId: 'own', rootFolder: 'Music', rootFolderId: 'own',
+                  modified: 1, duration: 1, artwork: false}]
+              }));
+            })();""")
+            cached.route("**/api/tracks", lambda route: route.abort())
+            cached.goto(f"http://127.0.0.1:{server.server_port}/?key={server.key}")
+            cached.locator("#track-list .track-row").first.wait_for()
+            assert cached.get_by_text("Cached song").is_visible()
+            assert cached.locator("#offline-banner").is_visible()
+            cached.close()
+            native_page = browser.new_page(viewport={"width": 390, "height": 844})
+            native_page.add_init_script("""(() => {
+              if (location.hostname !== '127.0.0.1') return;
+              localStorage.setItem('ytmp3_snapshot', JSON.stringify({at: Date.now(), tracks: [
+                {id: 'cached.mp3', title: 'Cached song', folder: 'Music', folderId: 'own',
+                  rootFolder: 'Music', rootFolderId: 'own', modified: 1, duration: 1, artwork: false}
+              ]}));
+              window.__scanRequests = 0;
+              window.Ytmp3Android = {
+                refreshTracks() { window.__scanRequests++; },
+                cachedTracks() { return JSON.stringify({tracks: [
+                  {id: 'fresh.mp3', title: 'Fresh song', folder: 'Music', folderId: 'own',
+                    rootFolder: 'Music', rootFolderId: 'own', modified: 2, duration: 1, artwork: false}
+                ]}); },
+                playback() { return '{}'; },
+                checkAppUpdate() {}
+              };
+            })();""")
+            native_page.route("**/api/tracks", lambda route: route.abort())
+            native_page.goto(f"http://127.0.0.1:{server.server_port}/?key={server.key}")
+            assert native_page.get_by_text("Cached song").is_visible()
+            assert native_page.evaluate("window.__scanRequests") == 1
+            native_page.evaluate("window.ytmp3TracksReady(true)")
+            assert native_page.get_by_text("Fresh song").is_visible()
+            native_page.close()
             assert not errors, errors
             browser.close()
     finally:

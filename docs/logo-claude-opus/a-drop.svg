@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">ytmp3 concept A: Drop</title>
+  <defs>
+    <mask id="drop-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+      <rect width="512" height="512" fill="#fff"/>
+      <!-- One sine period across the drop's widest line; its nodes meet the drop's edges. -->
+      <path d="M56 282q50 52 100 0t100 0t100 0t100 0" fill="none" stroke="#000" stroke-width="26" stroke-linecap="round"/>
+    </mask>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#102822"/>
+  <path d="M256 108C296 164 356 222 356 282A100 100 0 0 1 156 282C156 222 216 164 256 108Z" fill="#70d7b4" mask="url(#drop-cut)"/>
+</svg>

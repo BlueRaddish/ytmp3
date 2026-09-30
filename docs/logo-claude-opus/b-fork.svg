@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">ytmp3 concept B: Fork</title>
+  <rect width="512" height="512" rx="112" fill="#146d54"/>
+  <!-- One continuous stroke: a link loop whose two tines vibrate in antiphase, like a struck tuning fork. -->
+  <path d="M400 196C379 196 366 160 345 160S311 196 290 196S256 160 235 160S201 196 180 196A60 60 0 0 0 180 316C201 316 214 352 235 352S269 316 290 316S324 352 345 352S379 316 400 316" transform="translate(-4 0)" fill="none" stroke="#f0f6f4" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

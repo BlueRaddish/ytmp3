@@ -49,6 +49,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -67,6 +69,12 @@ public final class MainActivity extends Activity {
     private ListenableFuture<MediaController> controllerFuture;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private volatile String playbackSnapshot = "{}";
+    private volatile String scannedTracks = "{\"tracks\":[]}";
+    private final ExecutorService libraryScans = Executors.newSingleThreadExecutor();
+    private final Object scanLock = new Object();
+    private boolean scanRunning;
+    private boolean scanRequested;
+    private volatile boolean scanClosed;
     private final List<Runnable> pendingPlayback = new ArrayList<>();
     private String pendingCoverId;
     private String pendingRingtoneId;
@@ -79,7 +87,6 @@ public final class MainActivity extends Activity {
         getWindow().setNavigationBarColor(Color.rgb(16, 27, 28));
         library = new AndroidLibrary(this);
         web = new WebView(this);
-        web.clearCache(true);
         web.setBackgroundColor(Color.rgb(16, 27, 28));
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -237,7 +244,8 @@ public final class MainActivity extends Activity {
     }
 
     private final class Bridge {
-        @JavascriptInterface public String tracks() { return library.tracks(); }
+        @JavascriptInterface public String cachedTracks() { return scannedTracks; }
+        @JavascriptInterface public void refreshTracks() { requestTrackScan(); }
         @JavascriptInterface public String submit(String url) { return library.submit(url); }
         @JavascriptInterface public String job(String id) { return library.job(id); }
         @JavascriptInterface public String preview(String url) { return library.preview(url); }
@@ -372,6 +380,35 @@ public final class MainActivity extends Activity {
                 }
             });
         }
+    }
+
+    private void requestTrackScan() {
+        synchronized (scanLock) {
+            if (scanClosed) return;
+            scanRequested = true;
+            if (scanRunning) return;
+            scanRunning = true;
+        }
+        libraryScans.execute(() -> {
+            while (!scanClosed) {
+                synchronized (scanLock) { scanRequested = false; }
+                boolean success = true;
+                try { scannedTracks = library.tracks(); }
+                catch (RuntimeException error) {
+                    android.util.Log.w("ytmp3", "Could not refresh library", error);
+                    success = false;
+                }
+                synchronized (scanLock) {
+                    if (scanRequested) continue;
+                    scanRunning = false;
+                }
+                final boolean ok = success;
+                web.post(() -> {
+                    if (!scanClosed) web.evaluateJavascript("window.ytmp3TracksReady(" + ok + ")", null);
+                });
+                return;
+            }
+        });
     }
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
@@ -564,6 +601,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        scanClosed = true;
+        libraryScans.shutdownNow();
         web.destroy();
         super.onDestroy();
     }

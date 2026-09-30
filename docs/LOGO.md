@@ -1,13 +1,7 @@
-# ytmp3 logo exploration
+﻿# ytmp3 logo
 
-Brief: a recognizable mark for a local audio player and URL downloader on an Android launcher, a PC tab, and a 31 px navigation bar. Keep the app's quiet, capable, compact tone. Use the existing mint accent and dark green ink, with one 20 px stroke language. The mark must read without text or a YouTube reference, in both light and dark app themes.
+The user rejected the [initial three concepts](shots/logo-concepts.png). Claude Code Opus designed a [new four-concept sheet](logo-claude-opus/contact-sheet.png) on 2026-09-29. Its source SVGs and assessments are in [logo-claude-opus](logo-claude-opus/README.md).
 
-References: the current ytmp3 rounded tile supplies the color and silhouette; the app's Playlists list icon supplies the stacked-line motif; the Play triangle supplies the playback cue. The proposed symbol combines only those two functional shapes.
+Claude recommended **Drop**, and it is the current Android launcher, web app, and PC tab icon. The source is [a-drop.svg](logo-claude-opus/a-drop.svg); the generated PNGs are `ytmp3/web/icon-192.png`, `ytmp3/web/icon-512.png`, and `android/app/src/main/res/drawable-nodpi/ic_launcher.png`. The other Claude concepts remain available for review. The installed icon can be changed without altering the app's data or navigation.
 
-| Draft | Motif | Assessment |
-| --- | --- | --- |
-| [A — List + play](logo-concepts/list-play.svg) | Three library lines beside a play triangle | **Selected.** Clear at small size and directly tied to the app's two everyday actions. |
-| [B — Record](logo-concepts/record.svg) | Disc, spindle, and playback triangle | Reads as music but says less about a personal library. |
-| [C — y monogram](logo-concepts/monogram.svg) | A drawn lowercase y with a play cutout | Distinct from a plain letter but less clear at 31 px. |
-
-The [comparison sheet](shots/logo-concepts.png) shows the three marks at launcher and navigation sizes. The selected SVG is the source for the Android and web PNG icons. Keep the outer rounded tile, the dark ink, and the mint fill together when resizing; do not replace the geometry with a font glyph.
+The brief remains a recognizable mark for a local audio player and URL downloader at launcher, favicon, and small navigation sizes. Avoid references to YouTube and other media brands. Keep the mark legible in light and dark themes.

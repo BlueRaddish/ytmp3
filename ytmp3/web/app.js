@@ -78,6 +78,7 @@ const state = {
   shuffle: false,
   job: null,
   snapshotAt: 0,
+  trackJson: "[]",
   keyboardConfirmed: false,
   playerOpen: false
 };
@@ -202,25 +203,41 @@ function showOffline() {
     : "Library unavailable. Check that the ytmp3 app server is running.";
   banner.hidden = false;
 }
-async function refresh() {
+function applyTracks(data) {
+  if (!Array.isArray(data?.tracks)) throw new Error("Invalid library response");
+  const trackJson = JSON.stringify(data.tracks);
+  const changed = trackJson !== state.trackJson;
+  state.tracks = data.tracks;
+  state.trackJson = trackJson;
+  state.trackById = new Map(state.tracks.map((track) => [track.id, track]));
+  state.snapshotAt = Date.now();
   try {
-    let data;
-    if (native) data = JSON.parse(native.tracks());
-    else {
-      const response = await fetch("/api/tracks", { cache: "no-store" });
-      if (!response.ok) throw new Error("Library unavailable");
-      data = await response.json();
-    }
-    state.tracks = data.tracks;
-    state.trackById = new Map(state.tracks.map((track) => [track.id, track]));
-    state.snapshotAt = Date.now();
-    sessionStorage.setItem("ytmp3_snapshot", JSON.stringify({
-      tracks: state.tracks, at: state.snapshotAt
-    }));
-    $("#connection").textContent = native ? "On this device" : "Connected";
-    $("#connection").classList.remove("offline");
-    $("#offline-banner").hidden = true;
-    render();
+    localStorage.setItem("ytmp3_snapshot", JSON.stringify({ tracks: state.tracks, at: state.snapshotAt }));
+  } catch { /* Large libraries can exceed browser storage; the in-memory list still works. */ }
+  $("#connection").textContent = native ? "On this device" : "Connected";
+  $("#connection").classList.remove("offline");
+  $("#offline-banner").hidden = true;
+  if (changed) render();
+}
+let nativeRefreshWaiters = [];
+window.ytmp3TracksReady = (ok) => {
+  try {
+    if (!ok) throw new Error("Library scan failed");
+    applyTracks(JSON.parse(native.cachedTracks()));
+  } catch { toast("Could not refresh library."); }
+  nativeRefreshWaiters.splice(0).forEach((resolve) => resolve());
+};
+async function refresh() {
+  if (native) {
+    return new Promise((resolve) => {
+      nativeRefreshWaiters.push(resolve);
+      native.refreshTracks();
+    });
+  }
+  try {
+    const response = await fetch("/api/tracks", { cache: "no-store" });
+    if (!response.ok) throw new Error("Library unavailable");
+    applyTracks(await response.json());
   } catch {
     showOffline();
     render();
@@ -1475,42 +1492,50 @@ let pullCooldown = 0;
 $("#player").addEventListener("wheel", (event) => {
   if (!state.playerOpen || event.deltaY >= 0 || event.target.closest("input, .drag-handle, .tile-menu")) return;
   const panel = $("#player").dataset.panel;
-  if (panel === "queue" && (!event.target.closest("#queue-list") || $("#queue-list").scrollTop > 0)) return;
+  if (panel === "queue" && !event.target.closest("#queue-list")) return;
+  const excess = panel === "queue" ? -event.deltaY - $("#queue-list").scrollTop : -event.deltaY;
+  if (excess <= 0) { pullDistance = 0; return; }
   const now = Date.now();
   if (now < pullCooldown) return;
   if (now - pullTime > 450) pullDistance = 0;
   pullTime = now;
-  pullDistance += -event.deltaY;
+  pullDistance += excess;
   if (pullDistance < 90) return;
+  event.preventDefault();
   pullDistance = 0;
   pullCooldown = now + 600;
   if (panel === "queue") setPlayerPanel("song");
   else closePlayer();
-}, { passive: true });
+}, { passive: false });
 let touchStart = null;
 $("#player").addEventListener("touchstart", (event) => {
   touchStart = null;
   if (!state.playerOpen || event.touches.length !== 1 ||
-      event.target.closest("input, .drag-handle, .tile-menu, button:not(#expand-player)")) return;
+      event.target.closest("input, .drag-handle, .tile-menu")) return;
   const panel = $("#player").dataset.panel;
   const list = $("#queue-list");
-  if (panel === "queue" && !event.target.closest("#expand-player") &&
-      (!event.target.closest("#queue-list") || list.scrollTop > 0)) return;
-  touchStart = { y: event.touches[0].clientY, panel, banner: !!event.target.closest("#expand-player") };
+  const banner = !!event.target.closest("#expand-player");
+  if (panel === "queue" && !banner && !event.target.closest("#queue-list")) return;
+  if (panel === "song" && event.target.closest("button:not(#expand-player)")) return;
+  touchStart = { x: event.touches[0].clientX, y: event.touches[0].clientY,
+    scrollTop: list.scrollTop, panel, banner };
 }, { passive: true });
 $("#player").addEventListener("touchend", (event) => {
   if (!touchStart || event.changedTouches.length !== 1) return;
-  const { y, panel, banner } = touchStart;
+  const { x, y, scrollTop, panel, banner } = touchStart;
   touchStart = null;
   const distance = event.changedTouches[0].clientY - y;
-  if (panel === "queue" && ((banner && distance < -80) || (!banner && distance > 90 && $("#queue-list").scrollTop === 0))) {
+  if (Math.abs(event.changedTouches[0].clientX - x) > Math.abs(distance) * 0.7) return;
+  if (panel === "queue" && ((banner && distance < -80) ||
+      (!banner && distance - scrollTop > 90 && $("#queue-list").scrollTop <= 1))) {
     event.preventDefault();
     setPlayerPanel("song");
-  } else if (panel === "song" && Math.abs(distance) > 100) {
+  } else if (panel === "song" && distance > 100) {
     event.preventDefault();
     closePlayer();
   }
 }, { passive: false });
+$("#player").addEventListener("touchcancel", () => { touchStart = null; });
 $("#play").addEventListener("click", togglePlay);
 $("#previous").addEventListener("click", () => move(-1));
 $("#next").addEventListener("click", () => move(1));
@@ -1619,11 +1644,13 @@ if (received) {
 const lastUpdateCheck = Number(localStorage.getItem("ytmp3_update_checked_at") || 0);
 if (Date.now() - lastUpdateCheck > 86400000) setTimeout(() => checkAppUpdate(true), 2000);
 try {
-  const snapshot = JSON.parse(sessionStorage.getItem("ytmp3_snapshot") || "null");
+  const snapshot = JSON.parse(localStorage.getItem("ytmp3_snapshot")
+    || sessionStorage.getItem("ytmp3_snapshot") || "null");
   if (snapshot?.tracks && Array.isArray(snapshot.tracks)) {
     state.tracks = snapshot.tracks;
+    state.trackJson = JSON.stringify(state.tracks);
     state.trackById = new Map(state.tracks.map((track) => [track.id, track]));
-    state.snapshotAt = snapshot.at;
+    state.snapshotAt = Number.isFinite(snapshot.at) ? snapshot.at : 0;
   }
 } catch { /* Ignore an invalid old snapshot. */ }
 render();

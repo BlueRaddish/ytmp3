@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">ytmp3 concept C: Shelf</title>
+  <rect x="2" y="2" width="508" height="508" rx="110" fill="#dce7e1" stroke="#cad7d0" stroke-width="4"/>
+  <!-- Books of uneven height double as a level meter; the leaning one is the accent. -->
+  <g fill="#15221e">
+    <rect x="136" y="160" width="40" height="176" rx="10"/>
+    <rect x="196" y="208" width="40" height="128" rx="10"/>
+    <rect x="256" y="128" width="40" height="208" rx="10"/>
+  </g>
+  <rect x="336" y="160" width="40" height="176" rx="10" fill="#146d54" transform="rotate(-12 336 336)"/>
+  <path d="M120 368H392" fill="none" stroke="#15221e" stroke-width="32" stroke-linecap="round"/>
+</svg>

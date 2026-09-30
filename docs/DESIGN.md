@@ -89,7 +89,8 @@ the same interface, but requires a separate on-device check.
 - [Phone queue](shots/phone-player-browser.png): 390 px viewport, fixed current track and full-width queue.
 - [Phone song](shots/phone-song-browser.png): 390 px viewport, large cover and transport controls.
 - [Tablet queue, light](shots/tablet-queue-light.png): 768 px viewport, light theme.
-- [Logo concepts](shots/logo-concepts.png): three candidates at launcher and navigation sizes.
+- [Claude Opus logo concepts](logo-claude-opus/contact-sheet.png): four candidates at launcher and navigation sizes. Drop is the current app icon.
+- [Android v0.6.5](shots/emulator-v0.6.5.png): Browse after an in-place install and background library refresh.
 
 ## Android device check
 
@@ -106,3 +107,11 @@ the existing library after an in-place install. The ARM64 yt-dlp runtime could
 not execute on that x86_64 emulator, so the Android link preview still needs
 a check on the Galaxy S10. The PC preview returned metadata for the Wikimedia
 test-tone page without downloading the audio.
+
+For v0.6.5, the Android 35 emulator preserved its two-track library after an
+in-place install and showed the Claude Opus Drop icon. A touch pull on a queue
+song row opened the song view; another pull on the artwork returned to Browse.
+Adding and removing a test MP3 between app launches updated the listing through
+the background scan. A browser check confirmed that a persisted library
+snapshot appears when a refresh request fails. The Galaxy S10 was disconnected,
+so this release has not been checked on that phone.

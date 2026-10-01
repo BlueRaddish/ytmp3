@@ -1,5 +1,5 @@
 {
-  "version": "0.6.9",
-  "android_apk_url": "https://drive.google.com/open?id=1u9w65tWd3mvbeOQkFz5SNMNk0Ymql_Nd",
-  "notes": "Pull down past the queue's top to open the song view. Queue options now include Play/Pause, Previous, and Next. Track menus offer Play now, Play next, and Play last."
+  "version": "0.6.10",
+  "android_apk_url": "https://drive.google.com/open?id=1ECA3KgNsk3iqjkbenaQKK6agc7YJ0y75",
+  "notes": "Swipe down from the song view to collapse to the mini player, or swipe up to return to the queue. Trackpad overscroll follows the same directions."
 }

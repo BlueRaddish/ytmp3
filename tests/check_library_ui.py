@@ -183,7 +183,32 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator("#mix-selection").click()
             before = page.evaluate("JSON.parse(localStorage.ytmp3_queue)")
             assert page.locator('.nav-item').count() == 4
-            page.locator("#expand-player").click()
+            page.evaluate(swipe, {"selector": "#expand-player", "dx": 0, "dy": -35})
+            assert page.locator("body.player-open").count() == 0
+            page.wait_for_timeout(220)
+            assert page.locator(".player-drag").count() == 0
+            preview = page.evaluate("""() => {
+              const target = document.querySelector('#expand-player');
+              const send = (type, y) => {
+                const touch = new Touch({identifier: 9, target, clientX: 180, clientY: y});
+                target.dispatchEvent(new TouchEvent(type, {bubbles: true, cancelable: true,
+                  touches: [touch], changedTouches: [touch]}));
+              };
+              send('touchstart', 700);
+              send('touchmove', 570);
+              return {top: document.querySelector('.player-drag')?.getBoundingClientRect().top,
+                height: innerHeight};
+            }""")
+            assert preview["top"] is not None and 0 < preview["top"] < preview["height"]
+            page.screenshot(path=str(Path(tempfile.gettempdir()) / "ytmp3-mini-drag.png"))
+            page.evaluate("""() => {
+              const target = document.querySelector('#expand-player');
+              const touch = new Touch({identifier: 9, target, clientX: 180, clientY: 570});
+              target.dispatchEvent(new TouchEvent('touchend', {bubbles: true, cancelable: true,
+                touches: [], changedTouches: [touch]}));
+            }""")
+            assert page.locator("body.player-open").count() == 1
+            assert page.locator(".player-drag").count() == 0
             page.wait_for_timeout(120)
             page.screenshot(path=str(Path(tempfile.gettempdir()) / "ytmp3-player-mid.png"), animations="allow")
             page.wait_for_timeout(350)
@@ -273,8 +298,26 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator("body.player-open").wait_for(state="detached")
             page.locator("#expand-player").click()
             page.wait_for_timeout(350)
-            page.locator("#queue-list").dispatch_event("wheel", {"deltaY": -120})
+            page.locator("#queue-list").evaluate("""e => {
+              e.querySelector('#queue-end-check')?.remove();
+              const spacer = document.createElement('div'); spacer.id = 'queue-end-check';
+              spacer.style.height = '1000px'; e.append(spacer);
+              e.scrollTop = e.scrollHeight;
+            }""")
+            page.evaluate(swipe, {"selector": "#queue-list .queue-play", "dx": 0, "dy": -140})
             assert page.locator("#player").get_attribute("data-panel") == "song"
+            page.wait_for_timeout(350)
+            page.evaluate(swipe, {"selector": "#player .player-art", "dx": 0, "dy": 140})
+            page.wait_for_timeout(350)
+            page.locator("#queue-list").evaluate("""e => {
+              e.querySelector('#queue-end-check')?.remove();
+              const spacer = document.createElement('div'); spacer.id = 'queue-end-check';
+              spacer.style.height = '1000px'; e.append(spacer);
+              e.scrollTop = e.scrollHeight;
+            }""")
+            page.locator("#queue-list").dispatch_event("wheel", {"deltaY": 120})
+            assert page.locator("#player").get_attribute("data-panel") == "song"
+            page.evaluate("document.querySelector('#queue-end-check')?.remove()")
             page.wait_for_timeout(650)
             page.locator("#player").dispatch_event("wheel", {"deltaY": -120})
             page.locator("body.player-open").wait_for(state="detached")

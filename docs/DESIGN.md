@@ -31,6 +31,8 @@ scrolling, edge-to-edge queue. The current-track banner opens a focused song
 view with large cover art and playback controls. Pull beyond the queue's top
 to collapse the player. Swipe upward on the banner or beyond the queue's end
 to enter the song view; pull down to return to the queue or up to close the player.
+Drag the mini player upward to reveal the queue under the finger. On trackpads,
+scroll past the bottom of the queue to enter the song view.
 Animate the sheet between these states while the previous view remains visible.
 Preserve Back and Close buttons for precise navigation. Queue and playlist rows use a grip
 instead of visible position numbers.
@@ -105,6 +107,8 @@ the same interface, but requires a separate on-device check.
 - [Android v0.6.6](shots/emulator-v0.6.6.png): Audio with the Grille icon and the preserved two-track library.
 - [Android v0.6.7 slide](shots/emulator-v0.6.7-slide.png): outgoing Audio and incoming Playlists during a real emulator swipe.
 - [Android v0.6.7 selection](shots/emulator-v0.6.7-selection.png): the sticky cancel button stays at the start of multi-selection actions.
+- [Galaxy S10 v0.6.8 queue](shots/s10-v0.6.8-queue.png): queue after dragging up from the mini player.
+- [Galaxy S10 v0.6.8 song](shots/s10-v0.6.8-song.png): song view after pulling upward from the end of the queue.
 
 ## Android device check
 
@@ -146,3 +150,10 @@ view. A long press showed the cancel X first; an outside tap dismissed a track
 menu. The Galaxy S10 accepted an in-place upgrade from an older debug build
 and retained its existing test track. Its short screen timeout and lock screen
 prevented a touch gesture check on the S10 during this pass.
+
+For v0.6.8, the debug APK installed over v0.6.7 on the Galaxy S10 and retained
+its Wikimedia test track. A real touch drag from the mini player opened the
+queue; an upward pull on its only row opened the song view. The Android 35
+emulator reproduced both gestures with its two-track library. The browser
+interaction check covered a cancelled short drag, the moving sheet, and touch
+and trackpad overscroll at the end of a long queue.

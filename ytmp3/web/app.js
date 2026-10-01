@@ -1603,7 +1603,7 @@ function updatePlayer() {
   $("#duration").textContent = formatTime(duration);
   $("#seek").value = duration ? Math.round(position / duration * 1000) : 0;
 }
-function openPlayer() {
+function openPlayer(startY = innerHeight) {
   if (state.playerOpen) return;
   state.playerOpen = true;
   document.body.classList.add("player-open");
@@ -1612,7 +1612,7 @@ function openPlayer() {
   history.pushState({ view: state.view, player: true }, "", "#player");
   if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
     $("#player").animate([
-      { transform: "translateY(100%)" }, { transform: "translateY(0)" }
+      { transform: `translateY(${startY}px)` }, { transform: "translateY(0)" }
     ], { duration: 300, easing: "cubic-bezier(.22,.75,.2,1)" });
   $("#close-player").focus();
 }
@@ -1693,8 +1693,9 @@ $("#player").addEventListener("wheel", (event) => {
   const list = $("#queue-list");
   let action;
   if (panel === "queue") {
-    if (event.deltaY < 0 && (event.target.closest("#expand-player") ||
-        (event.target.closest("#queue-list") && list.scrollTop <= 1))) action = "song";
+    if ((event.deltaY < 0 && event.target.closest("#expand-player")) ||
+        (event.deltaY > 0 && event.target.closest("#queue-list") &&
+          list.scrollTop >= list.scrollHeight - list.clientHeight - 1)) action = "song";
     else if (event.deltaY > 0 && event.target.closest("#expand-player")) action = "close";
   } else {
     const player = $("#player");
@@ -1716,10 +1717,28 @@ $("#player").addEventListener("wheel", (event) => {
   else setPlayerPanel(action);
 }, { passive: false });
 let touchStart = null;
+let miniPull = null;
+function clearMiniPull(animate = false) {
+  const frame = miniPull?.frame;
+  miniPull = null;
+  if (!frame) return;
+  if (animate) {
+    const animation = frame.animate([
+      { transform: frame.style.transform }, { transform: `translateY(${innerHeight}px)` }
+    ], { duration: 180, easing: "ease-out" });
+    animation.onfinish = () => frame.remove();
+  } else frame.remove();
+}
 $("#player").addEventListener("touchstart", (event) => {
   touchStart = null;
-  if (!state.playerOpen || event.touches.length !== 1 ||
+  clearMiniPull();
+  if (event.touches.length !== 1 ||
       event.target.closest("input, .drag-handle, .tile-menu")) return;
+  if (!state.playerOpen) {
+    if (event.target.closest("button:not(#expand-player)")) return;
+    miniPull = { x: event.touches[0].clientX, y: event.touches[0].clientY, frame: null };
+    return;
+  }
   const panel = $("#player").dataset.panel;
   const list = $("#queue-list");
   const banner = !!event.target.closest("#expand-player");
@@ -1729,7 +1748,36 @@ $("#player").addEventListener("touchstart", (event) => {
     scrollTop: list.scrollTop, scrollBottom: list.scrollHeight - list.clientHeight - list.scrollTop,
     panel, banner };
 }, { passive: true });
+$("#player").addEventListener("touchmove", (event) => {
+  if (!miniPull || event.touches.length !== 1) return;
+  const dx = event.touches[0].clientX - miniPull.x;
+  const dy = event.touches[0].clientY - miniPull.y;
+  if (Math.abs(dx) > Math.abs(dy) * 1.3 || dy >= -8) return;
+  event.preventDefault();
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (!miniPull.frame) {
+    const frame = document.createElement("div");
+    frame.className = "player-drag player-open";
+    // One queue clone per drag; virtualize queue rows if very large queues make this slow.
+    frame.append(playerGhost());
+    document.body.append(frame);
+    miniPull.frame = frame;
+  }
+  miniPull.frame.style.transform = `translateY(${Math.max(0, innerHeight + dy)}px)`;
+}, { passive: false });
 $("#player").addEventListener("touchend", (event) => {
+  if (miniPull) {
+    const { x, y, frame } = miniPull;
+    const dx = event.changedTouches[0].clientX - x;
+    const dy = event.changedTouches[0].clientY - y;
+    const opened = dy < -80 && Math.abs(dy) > Math.abs(dx) * 1.3;
+    if (frame || opened) event.preventDefault();
+    if (opened) {
+      clearMiniPull();
+      openPlayer(Math.max(0, innerHeight + dy));
+    } else clearMiniPull(!!frame);
+    return;
+  }
   if (!touchStart || event.changedTouches.length !== 1) return;
   const { x, y, scrollTop, scrollBottom, panel, banner } = touchStart;
   touchStart = null;
@@ -1763,7 +1811,7 @@ $("#player").addEventListener("touchend", (event) => {
     closePlayer();
   }
 }, { passive: false });
-$("#player").addEventListener("touchcancel", () => { touchStart = null; });
+$("#player").addEventListener("touchcancel", () => { touchStart = null; clearMiniPull(); });
 $("#play").addEventListener("click", togglePlay);
 $("#previous").addEventListener("click", () => move(-1));
 $("#next").addEventListener("click", () => move(1));

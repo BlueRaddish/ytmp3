@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ytmp3"
-version = "0.6.7"
+version = "0.6.8"
 description = "yt-dlp URL-to-MP3 wrapper and personal media player"
 readme = "README.md"
 requires-python = ">=3.11"

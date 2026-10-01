@@ -230,8 +230,8 @@ dialog label { margin-top: 8px; font-size: 13px; }
 #info-details dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .dialog-actions { justify-content: flex-end; margin-top: 12px; }
 .player { position: fixed; z-index: 5; right: 0; bottom: 0; left: 232px; display: grid; grid-template-columns: minmax(160px, 1fr) minmax(250px, 1.35fr) minmax(150px, 1fr); align-items: center; gap: 24px; min-height: var(--player-height); padding: 16px 30px calc(16px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); background: var(--surface); }
-.player-panel-ghost, .player-exit { pointer-events: none; }
-.player-exit { position: fixed; z-index: 11; inset: 0; }
+.player-panel-ghost, .player-exit, .player-drag { pointer-events: none; }
+.player-exit, .player-drag { position: fixed; z-index: 11; inset: 0; }
 .player-header { display: none; }
 .player-track { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0; border: 0; color: var(--ink); background: transparent; text-align: left; }
 .player-art { display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: var(--radius-sm); background: var(--surface-3); color: var(--accent); font-size: 23px; }

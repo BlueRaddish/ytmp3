@@ -1688,7 +1688,7 @@ function setPlayerPanel(panel, animate = true, fromTop = false) {
     const animation = panel === "song"
       ? player.animate([{ transform: `translateY(${fromTop ? "-100%" : "100%"})` },
         { transform: "translateY(0)" }], timing)
-      : ghost.animate([{ transform: "translateY(0)" }, { transform: "translateY(100%)" }], timing);
+      : ghost.animate([{ transform: "translateY(0)" }, { transform: `translateY(${fromTop ? "-100%" : "100%"})` }], timing);
     panelSlide = { animation, ghost };
     animation.onfinish = () => { if (panelSlide?.ghost === ghost) stopPanelSlide(); };
   }
@@ -1723,8 +1723,8 @@ $("#player").addEventListener("wheel", (event) => {
   } else {
     const player = $("#player");
     const limit = player.scrollHeight - player.clientHeight;
-    if (event.deltaY > 0 && (!playerCanScroll() || player.scrollTop >= limit - 1)) action = "queue";
-    else if (event.deltaY < 0 && (!playerCanScroll() || player.scrollTop <= 1)) action = "close";
+    if (event.deltaY > 0 && (!playerCanScroll() || player.scrollTop >= limit - 1)) action = "close";
+    else if (event.deltaY < 0 && (!playerCanScroll() || player.scrollTop <= 1)) action = "queue";
   }
   if (!action) { pullDistance = 0; return; }
   const now = Date.now();
@@ -1737,7 +1737,8 @@ $("#player").addEventListener("wheel", (event) => {
   pullDistance = 0;
   pullCooldown = now + 600;
   if (action === "close") closePlayer();
-  else setPlayerPanel(action, true, panel === "queue" && !!event.target.closest("#queue-list"));
+  else setPlayerPanel(action, true, (panel === "queue" && !!event.target.closest("#queue-list")) ||
+    (panel === "song" && action === "queue"));
 }, { passive: false });
 let touchStart = null;
 let miniPull = null;
@@ -1824,11 +1825,11 @@ $("#player").addEventListener("touchend", (event) => {
     }
   } else if (distance > 100 && (!playerCanScroll() || $("#player").scrollTop <= 1)) {
     event.preventDefault();
-    setPlayerPanel("queue");
+    closePlayer();
   } else if (distance < -110 && (!playerCanScroll() || $("#player").scrollTop >=
       $("#player").scrollHeight - $("#player").clientHeight - 1)) {
     event.preventDefault();
-    closePlayer();
+    setPlayerPanel("queue", true, true);
   }
 }, { passive: false });
 $("#player").addEventListener("touchcancel", () => { touchStart = null; clearMiniPull(); });

@@ -317,8 +317,9 @@ with tempfile.TemporaryDirectory() as temp:
             page.evaluate(swipe, {"selector": "#expand-player", "dx": 0, "dy": -140})
             assert page.locator("#player").get_attribute("data-panel") == "song"
             page.wait_for_timeout(350)
-            page.evaluate(swipe, {"selector": "#player .player-art", "dx": 0, "dy": 140})
+            page.evaluate(swipe, {"selector": "#player .player-art", "dx": 0, "dy": -140})
             assert page.locator("#player").get_attribute("data-panel") == "queue"
+            assert page.locator(".player-panel-ghost").evaluate("e => e.getAnimations()[0].effect.getKeyframes()[1].transform") == "translateY(-100%)"
             page.wait_for_timeout(350)
             page.evaluate(swipe, {"selector": "#expand-player", "dx": 0, "dy": 140})
             page.locator("body.player-open").wait_for(state="detached")
@@ -326,7 +327,7 @@ with tempfile.TemporaryDirectory() as temp:
             page.wait_for_timeout(350)
             page.evaluate(swipe, {"selector": "#expand-player", "dx": 0, "dy": -140})
             page.wait_for_timeout(350)
-            page.evaluate(swipe, {"selector": "#player .player-art", "dx": 0, "dy": -140})
+            page.evaluate(swipe, {"selector": "#player .player-art", "dx": 0, "dy": 140})
             page.locator("body.player-open").wait_for(state="detached")
             page.locator("#expand-player").click()
             page.wait_for_timeout(350)
@@ -343,7 +344,7 @@ with tempfile.TemporaryDirectory() as temp:
             assert page.locator("#player").get_attribute("data-panel") == "song"
             assert page.locator("#player").evaluate("e => e.getAnimations()[0].effect.getKeyframes()[0].transform") == "translateY(-100%)"
             page.wait_for_timeout(350)
-            page.evaluate(swipe, {"selector": "#player .player-art", "dx": 0, "dy": 140})
+            page.evaluate(swipe, {"selector": "#player .player-art", "dx": 0, "dy": -140})
             page.wait_for_timeout(350)
             page.locator("#queue-list").evaluate("""e => {
               e.querySelector('#queue-end-check')?.remove();
@@ -359,6 +360,12 @@ with tempfile.TemporaryDirectory() as temp:
             page.evaluate("document.querySelector('#queue-end-check')?.remove()")
             page.wait_for_timeout(650)
             page.locator("#player").dispatch_event("wheel", {"deltaY": -120})
+            assert page.locator("#player").get_attribute("data-panel") == "queue"
+            page.wait_for_timeout(650)
+            page.locator("#queue-list").dispatch_event("wheel", {"deltaY": -120})
+            assert page.locator("#player").get_attribute("data-panel") == "song"
+            page.wait_for_timeout(650)
+            page.locator("#player").dispatch_event("wheel", {"deltaY": 120})
             page.locator("body.player-open").wait_for(state="detached")
             page.locator('.nav-item[data-view="playlists"]').click()
             assert page.locator('.nav-item[data-view="playlists"] .nav-list-icon').count() == 1

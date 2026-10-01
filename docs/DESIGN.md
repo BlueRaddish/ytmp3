@@ -30,8 +30,8 @@ In the expanded player, keep the current track fixed above an independently
 scrolling, edge-to-edge queue. The current-track banner opens a focused song
 view with large cover art and playback controls. Pull downward beyond the
 queue's top to enter the song view; pull down on the fixed banner or tap Close
-to collapse the queue. From the song view, pull down to return to the queue
-or up to close the player.
+to collapse the queue. From the song view, pull up to return to the queue
+or down to close the player.
 Drag the mini player upward to reveal the queue under the finger. On trackpads,
 scroll past the top of the queue to enter the song view. The queue menu has
 playback controls; a queued track's menu can play it now, next, or last.
@@ -169,3 +169,9 @@ unavailable actions disabled for its one-track queue. The track menu put Play
 now and Remove from queue before metadata and file actions. The browser check
 also verified Play next and Play last on a longer queue, including a track
 moved from before the current song, and wheel overscroll at the queue's top.
+
+For v0.6.10, an Android 35 emulator retained its two-track library after an
+in-place install. A downward swipe on the song artwork collapsed directly to
+the mini player; an upward swipe returned to the queue. The browser check
+covered both touch directions and trackpad overscroll. The APK also installed
+over v0.6.9 on the Galaxy S10, but its lock screen prevented a gesture check.

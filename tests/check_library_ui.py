@@ -255,10 +255,37 @@ with tempfile.TemporaryDirectory() as temp:
             page.mouse.move(second["x"] + 12, second["y"] + 20, steps=8)
             page.mouse.up()
             assert page.evaluate("JSON.parse(localStorage.ytmp3_queue)") == before
+            current_before_menu = page.evaluate("state.current")
+            page.evaluate("""() => {
+              state.queue = [state.queue[0], state.queue[1], state.queue[0]];
+              state.current = 0; renderQueue();
+            }""")
+            page.locator("#queue-list .tile-menu summary").nth(1).click()
+            assert page.locator("#queue-list .tile-menu[open]").get_by_role("button", name="Play now").count() == 1
+            page.locator("#queue-list .tile-menu[open]").get_by_role("button", name="Play last").click()
+            assert page.evaluate("state.queue") == [before[0], before[0], before[1]]
+            page.evaluate("state.current = 2; renderQueue()")
+            page.locator("#queue-list .tile-menu summary").first.click()
+            page.locator("#queue-list .tile-menu[open]").get_by_role("button", name="Play next").click()
+            assert page.evaluate("state.queue") == [before[0], before[1], before[0]]
+            assert page.evaluate("state.current") == 1
+            page.evaluate("""({queue, current}) => {
+              state.queue = queue; state.current = current; persistLists(); renderQueue();
+            }""", {"queue": before, "current": current_before_menu})
             page.locator("#queue-loop").click()
             assert page.locator("#queue-loop").get_attribute("aria-pressed") == "true"
             page.locator("#queue-mix").click()
             assert page.locator("#queue-mix").get_attribute("aria-pressed") == "true"
+            page.evaluate("audio.pause(); state.current = 0; updatePlayer()")
+            page.locator("#queue-options summary").click()
+            assert page.locator("#queue-play-toggle").inner_text() == "Play"
+            assert page.locator("#queue-play-toggle").is_enabled()
+            page.locator("#queue-next").click()
+            assert page.evaluate("state.current") == 1
+            page.evaluate("audio.currentTime = 0")
+            page.locator("#queue-options summary").click()
+            page.locator("#queue-previous").click()
+            assert page.evaluate("state.current") == 0
             page.locator("#queue-options summary").click()
             page.locator("#queue-count").click()
             assert page.locator("#queue-options").get_attribute("open") is None
@@ -279,6 +306,11 @@ with tempfile.TemporaryDirectory() as temp:
               row.dispatchEvent(new TouchEvent('touchend', {bubbles: true, touches: [], changedTouches: [end]}));
               spacer.remove();
             }""")
+            assert page.locator("#player").get_attribute("data-panel") == "song"
+            page.wait_for_timeout(350)
+            page.locator("#back-to-queue").click()
+            page.wait_for_timeout(350)
+            page.evaluate(swipe, {"selector": "#expand-player", "dx": 0, "dy": 140})
             page.locator("body.player-open").wait_for(state="detached")
             page.locator("#expand-player").click()
             page.wait_for_timeout(350)
@@ -305,7 +337,11 @@ with tempfile.TemporaryDirectory() as temp:
               e.scrollTop = e.scrollHeight;
             }""")
             page.evaluate(swipe, {"selector": "#queue-list .queue-play", "dx": 0, "dy": -140})
+            assert page.locator("#player").get_attribute("data-panel") == "queue"
+            page.locator("#queue-list").evaluate("e => e.scrollTop = 0")
+            page.evaluate(swipe, {"selector": "#queue-list .queue-play", "dx": 0, "dy": 140})
             assert page.locator("#player").get_attribute("data-panel") == "song"
+            assert page.locator("#player").evaluate("e => e.getAnimations()[0].effect.getKeyframes()[0].transform") == "translateY(-100%)"
             page.wait_for_timeout(350)
             page.evaluate(swipe, {"selector": "#player .player-art", "dx": 0, "dy": 140})
             page.wait_for_timeout(350)
@@ -316,6 +352,9 @@ with tempfile.TemporaryDirectory() as temp:
               e.scrollTop = e.scrollHeight;
             }""")
             page.locator("#queue-list").dispatch_event("wheel", {"deltaY": 120})
+            assert page.locator("#player").get_attribute("data-panel") == "queue"
+            page.locator("#queue-list").evaluate("e => e.scrollTop = 0")
+            page.locator("#queue-list").dispatch_event("wheel", {"deltaY": -120})
             assert page.locator("#player").get_attribute("data-panel") == "song"
             page.evaluate("document.querySelector('#queue-end-check')?.remove()")
             page.wait_for_timeout(650)

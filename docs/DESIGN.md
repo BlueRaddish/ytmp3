@@ -28,11 +28,13 @@ Use symbols for repeated page actions, with a 44 px touch target, a screen-reade
 name, and a desktop tooltip. Keep explicit text in confirmation dialogs and menus.
 In the expanded player, keep the current track fixed above an independently
 scrolling, edge-to-edge queue. The current-track banner opens a focused song
-view with large cover art and playback controls. Pull beyond the queue's top
-to collapse the player. Swipe upward on the banner or beyond the queue's end
-to enter the song view; pull down to return to the queue or up to close the player.
+view with large cover art and playback controls. Pull downward beyond the
+queue's top to enter the song view; pull down on the fixed banner or tap Close
+to collapse the queue. From the song view, pull down to return to the queue
+or up to close the player.
 Drag the mini player upward to reveal the queue under the finger. On trackpads,
-scroll past the bottom of the queue to enter the song view.
+scroll past the top of the queue to enter the song view. The queue menu has
+playback controls; a queued track's menu can play it now, next, or last.
 Animate the sheet between these states while the previous view remains visible.
 Preserve Back and Close buttons for precise navigation. Queue and playlist rows use a grip
 instead of visible position numbers.
@@ -109,6 +111,8 @@ the same interface, but requires a separate on-device check.
 - [Android v0.6.7 selection](shots/emulator-v0.6.7-selection.png): the sticky cancel button stays at the start of multi-selection actions.
 - [Galaxy S10 v0.6.8 queue](shots/s10-v0.6.8-queue.png): queue after dragging up from the mini player.
 - [Galaxy S10 v0.6.8 song](shots/s10-v0.6.8-song.png): song view after pulling upward from the end of the queue.
+- [Galaxy S10 v0.6.9 song](shots/s10-v0.6.9-down-pull.png): song view after pulling down from the queue's top.
+- [Galaxy S10 v0.6.9 queue menu](shots/s10-v0.6.9-queue-menu.png): track actions appear near the top of the menu.
 
 ## Android device check
 
@@ -157,3 +161,11 @@ queue; an upward pull on its only row opened the song view. The Android 35
 emulator reproduced both gestures with its two-track library. The browser
 interaction check covered a cancelled short drag, the moving sheet, and touch
 and trackpad overscroll at the end of a long queue.
+
+For v0.6.9, the Galaxy S10 kept its test track after an in-place install.
+Pulling upward on its queue row left the queue open; pulling downward opened
+the song view. The queue-wide options showed Play, Previous, and Next, with
+unavailable actions disabled for its one-track queue. The track menu put Play
+now and Remove from queue before metadata and file actions. The browser check
+also verified Play next and Play last on a longer queue, including a track
+moved from before the current song, and wheel overscroll at the queue's top.

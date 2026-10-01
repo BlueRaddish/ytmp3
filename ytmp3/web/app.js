@@ -896,12 +896,22 @@ function trackMenu(track, context, index, list) {
     button.addEventListener("click", () => { menu.open = false; run(); });
     options.append(button);
   };
-  addAction("Play", () => {
+  addAction(context === "queue" ? "Play now" : "Play", () => {
     if (context === "library") state.queue = visibleTracks().map((item) => item.id);
     if (context === "browse") state.queue = browseTracks().map((item) => item.id);
     if (context === "playlist") state.queue = list.tracks.filter((id) => state.trackById.has(id));
     playTrack(track.id, context === "queue" ? index : undefined);
   });
+  if (context === "queue") {
+    if (state.queue.length > 1 && index !== state.current) {
+      addAction("Play next", () => reorderQueue(index,
+        Math.min(state.queue.length - 1, Math.max(0,
+          state.current + (index < state.current ? 0 : 1)))));
+      if (index !== state.queue.length - 1)
+        addAction("Play last", () => reorderQueue(index, state.queue.length - 1));
+    }
+    addAction("Remove from queue", () => removeQueueIndex(index));
+  }
   addAction("View info", () => showTrackInfo(track));
   addAction("Add to playlist", () => openPlaylistPicker(track.id));
   addAction(state.favorites.includes(track.id) ? "Remove favorite" : "Add to favorites",
@@ -922,7 +932,6 @@ function trackMenu(track, context, index, list) {
     addAction("Share file", () => native.shareTrack(track.id));
     addAction("Set as ringtone", () => native.setRingtone(track.id));
   } else addAction("Share file", () => shareTrack(track));
-  if (context === "queue") addAction("Remove from queue", () => removeQueueIndex(index));
   if (context === "playlist") addAction("Remove from playlist", () => {
     list.tracks.splice(index, 1); persistLists(); renderPlaylists();
   });
@@ -1218,6 +1227,9 @@ $("#create-playlist").addEventListener("submit", (event) => {
 function renderQueue() {
   const list = $("#queue-list");
   $("#queue-count").textContent = `${state.queue.length} ${state.queue.length === 1 ? "track" : "tracks"}`;
+  $("#queue-play-toggle").disabled = !state.queue.length;
+  $("#queue-previous").disabled = state.queue.length < 2;
+  $("#queue-next").disabled = state.queue.length < 2;
   $("#clear-queue").disabled = !state.queue.length;
   $("#save-queue").disabled = !state.queue.length;
   $("#queue-mix").disabled = !state.queue.length;
@@ -1247,6 +1259,15 @@ $("#clear-queue").addEventListener("click", () => {
   if (native) native.command("stop", 0);
   persistLists(); renderQueue(); updatePlayer();
   $("#queue-options").open = false;
+});
+$("#queue-play-toggle").addEventListener("click", () => {
+  $("#queue-options").open = false; togglePlay();
+});
+$("#queue-previous").addEventListener("click", () => {
+  $("#queue-options").open = false; move(-1);
+});
+$("#queue-next").addEventListener("click", () => {
+  $("#queue-options").open = false; move(1);
 });
 $("#save-queue").addEventListener("click", () => {
   $("#save-queue-dialog").showModal();
@@ -1599,6 +1620,7 @@ function updatePlayer() {
     native ? (state.nativePlayback.position || 0) / 1000 : audio.currentTime);
   $("#play").textContent = playing ? "Ⅱ" : "▶";
   $("#play").setAttribute("aria-label", playing ? "Pause" : "Play");
+  $("#queue-play-toggle").textContent = playing ? "Pause" : "Play";
   $("#elapsed").textContent = formatTime(position);
   $("#duration").textContent = formatTime(duration);
   $("#seek").value = duration ? Math.round(position / duration * 1000) : 0;
@@ -1645,7 +1667,7 @@ function animatePlayerExit() {
   ], { duration: 310, easing: "cubic-bezier(.4,0,.8,.3)" });
   animation.onfinish = () => exit.remove();
 }
-function setPlayerPanel(panel, animate = true) {
+function setPlayerPanel(panel, animate = true, fromTop = false) {
   const player = $("#player");
   if (player.dataset.panel === panel) return;
   stopPanelSlide();
@@ -1664,7 +1686,8 @@ function setPlayerPanel(panel, animate = true) {
     ghost.querySelector(".queue-list").scrollTop = queueScroll;
     const timing = { duration: 310, easing: "cubic-bezier(.22,.75,.2,1)" };
     const animation = panel === "song"
-      ? player.animate([{ transform: "translateY(100%)" }, { transform: "translateY(0)" }], timing)
+      ? player.animate([{ transform: `translateY(${fromTop ? "-100%" : "100%"})` },
+        { transform: "translateY(0)" }], timing)
       : ghost.animate([{ transform: "translateY(0)" }, { transform: "translateY(100%)" }], timing);
     panelSlide = { animation, ghost };
     animation.onfinish = () => { if (panelSlide?.ghost === ghost) stopPanelSlide(); };
@@ -1694,8 +1717,8 @@ $("#player").addEventListener("wheel", (event) => {
   let action;
   if (panel === "queue") {
     if ((event.deltaY < 0 && event.target.closest("#expand-player")) ||
-        (event.deltaY > 0 && event.target.closest("#queue-list") &&
-          list.scrollTop >= list.scrollHeight - list.clientHeight - 1)) action = "song";
+        (event.deltaY < 0 && event.target.closest("#queue-list") &&
+          list.scrollTop <= 1)) action = "song";
     else if (event.deltaY > 0 && event.target.closest("#expand-player")) action = "close";
   } else {
     const player = $("#player");
@@ -1714,7 +1737,7 @@ $("#player").addEventListener("wheel", (event) => {
   pullDistance = 0;
   pullCooldown = now + 600;
   if (action === "close") closePlayer();
-  else setPlayerPanel(action);
+  else setPlayerPanel(action, true, panel === "queue" && !!event.target.closest("#queue-list"));
 }, { passive: false });
 let touchStart = null;
 let miniPull = null;
@@ -1745,8 +1768,7 @@ $("#player").addEventListener("touchstart", (event) => {
   if (panel === "queue" && !banner && !event.target.closest("#queue-list")) return;
   if (panel === "song" && event.target.closest("button:not(#expand-player)")) return;
   touchStart = { x: event.touches[0].clientX, y: event.touches[0].clientY,
-    scrollTop: list.scrollTop, scrollBottom: list.scrollHeight - list.clientHeight - list.scrollTop,
-    panel, banner };
+    scrollTop: list.scrollTop, panel, banner };
 }, { passive: true });
 $("#player").addEventListener("touchmove", (event) => {
   if (!miniPull || event.touches.length !== 1) return;
@@ -1779,7 +1801,7 @@ $("#player").addEventListener("touchend", (event) => {
     return;
   }
   if (!touchStart || event.changedTouches.length !== 1) return;
-  const { x, y, scrollTop, scrollBottom, panel, banner } = touchStart;
+  const { x, y, scrollTop, panel, banner } = touchStart;
   touchStart = null;
   const across = event.changedTouches[0].clientX - x;
   const distance = event.changedTouches[0].clientY - y;
@@ -1793,12 +1815,10 @@ $("#player").addEventListener("touchend", (event) => {
   if (panel === "queue") {
     const list = $("#queue-list");
     if ((banner && distance < -80) ||
-        (!banner && -distance - scrollBottom > 90 &&
-          list.scrollTop >= list.scrollHeight - list.clientHeight - 1)) {
-      event.preventDefault();
-      setPlayerPanel("song");
-    } else if ((banner && distance > 90) ||
         (!banner && distance - scrollTop > 90 && list.scrollTop <= 1)) {
+      event.preventDefault();
+      setPlayerPanel("song", true, !banner);
+    } else if (banner && distance > 90) {
       event.preventDefault();
       closePlayer();
     }

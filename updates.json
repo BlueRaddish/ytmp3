@@ -1,5 +1,5 @@
 {
-  "version": "0.6.7",
-  "android_apk_url": "https://drive.google.com/open?id=1LXghPnUQx-wroSeRPe0f2Hgd5K_ssUJu",
-  "notes": "Smoother tab swipes and queue-to-song transitions. Swipe up from the queue to the song view, down to return, and up from the song view to close. Selection cancel stays visible; track menus close when tapped outside."
+  "version": "0.6.8",
+  "android_apk_url": "https://drive.google.com/open?id=1XRAcQQXZyMMLf3jvUNS2eA39WRY2a34Q",
+  "notes": "Drag the mini player upward to open the queue. Pull upward past the queue's end to open the single-song view. Short drags settle back; trackpad overscroll now follows the same direction."
 }

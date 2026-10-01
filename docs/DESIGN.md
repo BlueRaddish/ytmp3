@@ -32,10 +32,12 @@ view with large cover art and playback controls. Pull downward beyond the
 queue's top to enter the song view; pull down on the fixed banner or tap Close
 to collapse the queue. From the song view, pull up to return to the queue
 or down to close the player.
-Drag the mini player upward to reveal the queue under the finger. On trackpads,
+Drag the mini player's actual banner upward to reveal the queue under the finger;
+keep the banner aligned with the finger as the sheet grows. On trackpads,
 scroll past the top of the queue to enter the song view. The queue menu has
 playback controls; a queued track's menu can play it now, next, or last.
-Animate the sheet between these states while the previous view remains visible.
+Let touch pulls and trackpad overscroll move the current sheet before release.
+Settle from that position, with the remaining duration based on distance and drag speed.
 Preserve Back and Close buttons for precise navigation. Queue and playlist rows use a grip
 instead of visible position numbers.
 Swipe horizontally between Browse, Audio, Playlists, and More on touchscreens;
@@ -44,7 +46,7 @@ scroll position. Let vertical scrolling, playlist strips, controls, and row
 reordering retain their own gestures. In the song view, horizontal artwork
 swipes move to the previous or next track. Respect reduced-motion preferences
 when animating a screen change.
-Move the prior main screen out as the next screen slides in across its full width.
+Move the prior main screen with the finger as the next screen slides in beside it.
 Keep a sticky X first in the selection bar so long-press selection is easy to cancel.
 Dismiss track and queue action menus when a user taps outside or presses Escape.
 
@@ -175,3 +177,11 @@ in-place install. A downward swipe on the song artwork collapsed directly to
 the mini player; an upward swipe returned to the queue. The browser check
 covered both touch directions and trackpad overscroll. The APK also installed
 over v0.6.9 on the Galaxy S10, but its lock screen prevented a gesture check.
+
+For v0.6.11, the Android 35 emulator retained its two tracks after an in-place
+install. During a slow mini-player drag, the same banner moved with the finger
+as the queue appeared below it. A queue-top pull moved the queue sheet down to
+reveal the song view, and a downward song pull exposed the library and mini
+player. Browser checks measured one-to-one banner movement, a reversible short
+queue pull, and a trackpad pull that settled back below the threshold. The S10
+was disconnected during this pass.

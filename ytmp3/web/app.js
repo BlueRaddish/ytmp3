@@ -248,6 +248,11 @@ const views = ["browse", "audio", "playlists", "more"];
 const viewScroll = new Map();
 history.scrollRestoration = "manual";
 let viewSlide = null;
+let suppressPlayerExit = false;
+function finishDuration(distance, velocity, minimum = 120, maximum = 380) {
+  return Math.max(minimum, Math.min(maximum,
+    Math.max(0, distance) / Math.max(1.1, velocity)));
+}
 function stopViewSlide() {
   if (!viewSlide) return;
   viewSlide.incoming.cancel();
@@ -255,7 +260,7 @@ function stopViewSlide() {
   viewSlide.frame.remove();
   viewSlide = null;
 }
-function setView(view, push = true, startX = 0) {
+function setView(view, push = true, startX = 0, velocity = 0) {
   if (!views.includes(view) || state.view === view) return;
   stopViewSlide();
   main.getAnimations().forEach((animation) => animation.cancel());
@@ -289,20 +294,27 @@ function setView(view, push = true, startX = 0) {
     old.inert = true;
     old.setAttribute("aria-hidden", "true");
     document.body.append(frame);
-    const timing = { duration: 290, easing: "cubic-bezier(.22,.75,.2,1)" };
     const distance = main.getBoundingClientRect().width * direction;
+    const timing = { duration: finishDuration(Math.abs(distance) - Math.abs(startX), velocity, 120, 320),
+      easing: "cubic-bezier(.22,.75,.2,1)" };
     const outgoing = old.animate([
       { transform: `translateX(${startX}px)` }, { transform: `translateX(${-distance}px)` }
     ], timing);
     const incoming = main.animate([
-      { transform: `translateX(${distance}px)` }, { transform: "translateX(0)" }
+      { transform: `translateX(${distance + startX}px)` }, { transform: "translateX(0)" }
     ], timing);
     viewSlide = { frame, incoming, outgoing };
     incoming.onfinish = () => { if (viewSlide?.frame === frame) stopViewSlide(); };
   }
 }
 addEventListener("popstate", () => {
-  if (state.playerOpen) animatePlayerExit();
+  abortPeek();
+  if (panelDrag && !suppressPlayerExit) {
+    suppressPlayerExit = true;
+    abortPanelDrag();
+  }
+  if (state.playerOpen && !suppressPlayerExit) animatePlayerExit();
+  suppressPlayerExit = false;
   state.playerOpen = false;
   document.body.classList.remove("player-open");
   $("#player").dataset.panel = "queue";
@@ -318,51 +330,59 @@ function canSwipeView(target) {
     target instanceof Element && !target.closest("input, select, textarea, button, a, summary, " +
       ".drag-handle, .tile-menu, .playlist-list, .selection-bar, [contenteditable]");
 }
-function adjacentView(direction, startX = 0) {
+function adjacentView(direction, startX = 0, velocity = 0) {
   const next = views[views.indexOf(state.view) + direction];
-  if (next) setView(next, true, startX);
+  if (next) setView(next, true, startX, velocity);
   else settleViewDrag(startX);
 }
-function settleViewDrag(x) {
+function settleViewDrag(x, velocity = 0) {
   main.style.transform = "";
   main.style.willChange = "";
   if (x && !matchMedia("(prefers-reduced-motion: reduce)").matches)
     main.animate([{ transform: `translateX(${x}px)` }, { transform: "translateX(0)" }],
-      { duration: 180, easing: "ease-out" });
+      { duration: finishDuration(Math.abs(x), velocity, 100, 250), easing: "ease-out" });
 }
 let viewTouch = null;
 $(".workspace").addEventListener("touchstart", (event) => {
   viewTouch = null;
+  clearTimeout(wheelSettle);
+  wheelTravel = 0;
   if (event.touches.length !== 1 || !canSwipeView(event.target)) return;
   const { clientX: x, clientY: y } = event.touches[0];
   if (x < 24 || x > innerWidth - 24) return;
-  viewTouch = { x, y, axis: null, dragX: 0 };
+  viewTouch = { x, y, axis: null, dragX: 0, at: performance.now(), velocity: 0 };
 }, { passive: true });
 $(".workspace").addEventListener("touchmove", (event) => {
   if (!viewTouch || event.touches.length !== 1) return;
   const dx = event.touches[0].clientX - viewTouch.x;
   const dy = event.touches[0].clientY - viewTouch.y;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   if (!viewTouch.axis && Math.max(Math.abs(dx), Math.abs(dy)) > 18)
     viewTouch.axis = Math.abs(dx) > Math.abs(dy) * 1.3 ? "horizontal" : "vertical";
   if (viewTouch.axis === "horizontal") {
     event.preventDefault();
     const next = views[views.indexOf(state.view) + (dx < 0 ? 1 : -1)];
-    viewTouch.dragX = Math.max(-innerWidth * .35, Math.min(innerWidth * .35,
-      dx * (next ? .65 : .15)));
+    const previous = viewTouch.dragX;
+    viewTouch.dragX = Math.max(-innerWidth, Math.min(innerWidth,
+      dx * (next ? 1 : .15)));
+    const now = performance.now();
+    viewTouch.velocity = Math.abs(viewTouch.dragX - previous) /
+      Math.max(1, now - viewTouch.at);
+    viewTouch.at = now;
     main.style.willChange = "transform";
     main.style.transform = `translateX(${viewTouch.dragX}px)`;
   }
 }, { passive: false });
 $(".workspace").addEventListener("touchend", (event) => {
   if (!viewTouch || event.changedTouches.length !== 1) return;
-  const { x, y, axis, dragX } = viewTouch;
+  const { x, y, axis, dragX, velocity } = viewTouch;
   viewTouch = null;
   const dx = event.changedTouches[0].clientX - x;
   const dy = event.changedTouches[0].clientY - y;
   if (axis !== "horizontal" || state.selectionMode || Math.abs(dx) < 80 ||
-      Math.abs(dx) < Math.abs(dy) * 1.3) { settleViewDrag(dragX); return; }
+      Math.abs(dx) < Math.abs(dy) * 1.3) { settleViewDrag(dragX, velocity); return; }
   event.preventDefault();
-  adjacentView(dx < 0 ? 1 : -1, dragX);
+  adjacentView(dx < 0 ? 1 : -1, dragX, velocity);
 }, { passive: false });
 $(".workspace").addEventListener("touchcancel", () => {
   settleViewDrag(viewTouch?.dragX || 0);
@@ -371,17 +391,41 @@ $(".workspace").addEventListener("touchcancel", () => {
 let wheelTravel = 0;
 let wheelAt = 0;
 let wheelCooldown = 0;
+let wheelSettle = 0;
 $(".workspace").addEventListener("wheel", (event) => {
   if (!canSwipeView(event.target) || event.ctrlKey || event.altKey || event.shiftKey ||
       event.metaKey || Math.abs(event.deltaX) < Math.abs(event.deltaY) * 1.4) return;
   const now = Date.now();
   if (now < wheelCooldown) return;
   if (now - wheelAt > 350 || Math.sign(wheelTravel) !== Math.sign(event.deltaX)) wheelTravel = 0;
+  const elapsed = Math.max(1, now - wheelAt);
   wheelAt = now;
   wheelTravel += event.deltaX * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? innerWidth : 1);
-  if (Math.abs(wheelTravel) < 100) return;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    if (Math.abs(wheelTravel) < 100) return;
+    event.preventDefault();
+    adjacentView(wheelTravel > 0 ? 1 : -1);
+    wheelTravel = 0;
+    wheelCooldown = now + 550;
+    return;
+  }
   event.preventDefault();
-  adjacentView(wheelTravel > 0 ? 1 : -1);
+  const direction = wheelTravel > 0 ? 1 : -1;
+  const next = views[views.indexOf(state.view) + direction];
+  const offset = Math.max(-innerWidth, Math.min(innerWidth,
+    -wheelTravel * (next ? 1 : .15)));
+  main.style.willChange = "transform";
+  main.style.transform = `translateX(${offset}px)`;
+  clearTimeout(wheelSettle);
+  if (Math.abs(wheelTravel) < 100) {
+    const origin = state.view;
+    wheelSettle = setTimeout(() => {
+      if (state.view === origin && !viewTouch) settleViewDrag(offset);
+      wheelTravel = 0;
+    }, 320);
+    return;
+  }
+  adjacentView(direction, offset, Math.abs(event.deltaX) / elapsed);
   wheelTravel = 0;
   wheelCooldown = now + 550;
 }, { passive: false });
@@ -1625,8 +1669,74 @@ function updatePlayer() {
   $("#duration").textContent = formatTime(duration);
   $("#seek").value = duration ? Math.round(position / duration * 1000) : 0;
 }
+let sheetPeek = null;
+function abortPeek() {
+  if (!sheetPeek) return;
+  cancelAnimationFrame(sheetPeek.frame);
+  sheetPeek = null;
+  document.body.classList.remove("player-peek");
+  const player = $("#player");
+  for (const name of ["--peek-progress", "--peek-header", "--peek-height", "--peek-track-height"])
+    player.style.removeProperty(name);
+}
+function applyPeek(drag) {
+  if (!sheetPeek) return;
+  sheetPeek.drag = Math.max(0, Math.min(sheetPeek.travel, drag));
+  const progress = sheetPeek.drag / sheetPeek.travel;
+  const player = $("#player");
+  player.style.setProperty("--peek-progress", progress);
+  player.style.setProperty("--peek-header", `${64 * progress}px`);
+  player.style.setProperty("--peek-track-height",
+    `${sheetPeek.trackHeight + (54 - sheetPeek.trackHeight) * progress}px`);
+  player.style.setProperty("--peek-height", `${Math.min(innerHeight,
+    sheetPeek.base + sheetPeek.drag + 64 * progress)}px`);
+}
+function beginPeek() {
+  const player = $("#player");
+  const top = $("#expand-player").getBoundingClientRect().top;
+  sheetPeek = { base: innerHeight - top, travel: Math.max(1, top - 64),
+    trackHeight: player.getBoundingClientRect().height, drag: 0, frame: 0 };
+  document.body.classList.add("player-open", "player-peek");
+  player.dataset.panel = "queue";
+  $("#queue-list").scrollTop = 0;
+  applyPeek(0);
+}
+function settlePeek(open, velocity = 0) {
+  const peek = sheetPeek;
+  if (!peek) return;
+  const from = peek.drag;
+  const to = open ? peek.travel : 0;
+  if (open) {
+    state.playerOpen = true;
+    history.pushState({ view: state.view, player: true }, "", "#player");
+  }
+  const duration = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 :
+    finishDuration(Math.abs(to - from), velocity, 120, 430);
+  const started = performance.now();
+  const step = (now) => {
+    if (sheetPeek !== peek) return;
+    const t = duration ? Math.min(1, (now - started) / duration) : 1;
+    const eased = 1 - (1 - t) ** 3;
+    applyPeek(from + (to - from) * eased);
+    if (t < 1) { peek.frame = requestAnimationFrame(step); return; }
+    sheetPeek = null;
+    document.body.classList.remove("player-peek");
+    if (!open) document.body.classList.remove("player-open");
+    const player = $("#player");
+    for (const name of ["--peek-progress", "--peek-header", "--peek-height", "--peek-track-height"])
+      player.style.removeProperty(name);
+    if (open) $("#close-player").focus({ preventScroll: true });
+  };
+  peek.frame = requestAnimationFrame(step);
+}
 function openPlayer(startY = innerHeight) {
-  if (state.playerOpen) return;
+  if (state.playerOpen || sheetPeek) return;
+  if (matchMedia("(max-width: 839px)").matches &&
+      !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    beginPeek();
+    settlePeek(true);
+    return;
+  }
   state.playerOpen = true;
   document.body.classList.add("player-open");
   setPlayerPanel("queue", false);
@@ -1693,29 +1803,111 @@ function setPlayerPanel(panel, animate = true, fromTop = false) {
     animation.onfinish = () => { if (panelSlide?.ghost === ghost) stopPanelSlide(); };
   }
 }
+let panelDrag = null;
+function abortPanelDrag() {
+  if (!panelDrag) return;
+  panelDrag.animation?.cancel();
+  panelDrag.element.style.transform = "";
+  if (panelDrag.action === "close") panelDrag.element.remove();
+  else panelDrag.ghost.remove();
+  panelDrag = null;
+  if (wheelPull) { clearTimeout(wheelPull.timer); wheelPull = null; }
+}
+function beginPanelDrag(action, fromBanner = false) {
+  stopPanelSlide();
+  const player = $("#player");
+  const source = player.dataset.panel;
+  // One clone per pull; virtualize queue rows if very large queues make this slow.
+  const ghost = playerGhost();
+  ghost.querySelector(".queue-list").scrollTop = $("#queue-list").scrollTop;
+  const entering = action === "song" && fromBanner;
+  let element;
+  if (action === "close") {
+    const layer = document.createElement("div");
+    layer.className = "player-exit player-open";
+    layer.append(ghost);
+    document.body.append(layer);
+    document.body.classList.remove("player-open");
+    element = layer;
+  } else {
+    setPlayerPanel(action, false);
+    ghost.style.zIndex = entering ? "9" : "11";
+    document.body.append(ghost);
+    element = entering ? player : ghost;
+  }
+  panelDrag = { action, source, ghost, element, entering,
+    direction: action === "queue" || entering ? -1 : 1,
+    distance: 0, at: performance.now(), velocity: 0, settling: false };
+  applyPanelDrag(0);
+}
+function applyPanelDrag(distance) {
+  const drag = panelDrag;
+  if (!drag) return;
+  drag.distance = Math.max(0, Math.min(innerHeight, distance));
+  const offset = drag.entering ? innerHeight - drag.distance : drag.direction * drag.distance;
+  drag.element.style.transform = `translateY(${offset}px)`;
+}
+function settlePanelDrag(commit, velocity = 0) {
+  const drag = panelDrag;
+  if (!drag || drag.settling) return;
+  drag.settling = true;
+  const from = drag.distance;
+  const to = commit ? innerHeight : 0;
+  const start = drag.element.style.transform;
+  const end = `translateY(${drag.entering ? innerHeight - to : drag.direction * to}px)`;
+  const duration = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 :
+    finishDuration(Math.abs(to - from), velocity);
+  if (commit && drag.action === "close") {
+    suppressPlayerExit = true;
+    closePlayer();
+  }
+  const finish = () => {
+    if (panelDrag !== drag) return;
+    if (!commit) {
+      if (drag.action === "close") document.body.classList.add("player-open");
+      else setPlayerPanel(drag.source, false);
+    }
+    drag.element.style.transform = "";
+    if (drag.action === "close") drag.element.remove();
+    else drag.ghost.remove();
+    panelDrag = null;
+  };
+  if (!duration || start === end) { finish(); return; }
+  const animation = drag.element.animate([
+    { transform: start }, { transform: end }
+  ], { duration, easing: "cubic-bezier(.22,.75,.2,1)" });
+  drag.animation = animation;
+  animation.onfinish = finish;
+}
 function closePlayer() {
   if (state.playerOpen) history.back();
 }
 $("#expand-player").addEventListener("click", () => {
+  if (panelDrag?.action === "close" && panelDrag.settling && !state.playerOpen)
+    abortPanelDrag();
+  if (sheetPeek || panelDrag) return;
   if (!state.playerOpen) openPlayer();
-  else setPlayerPanel($("#player").dataset.panel === "queue" ? "song" : "queue");
+  else setPlayerPanel($("#player").dataset.panel === "queue" ? "song" : "queue", true, true);
 });
-$("#back-to-queue").addEventListener("click", () => setPlayerPanel("queue"));
+$("#back-to-queue").addEventListener("click", () => {
+  if (!panelDrag) setPlayerPanel("queue", true, true);
+});
 $("#close-player").addEventListener("click", closePlayer);
-let pullDistance = 0;
-let pullTime = 0;
 let pullCooldown = 0;
+let wheelPull = null;
 function playerCanScroll() {
   const player = $("#player");
   return ["auto", "scroll"].includes(getComputedStyle(player).overflowY) &&
     player.scrollHeight > player.clientHeight + 1;
 }
 $("#player").addEventListener("wheel", (event) => {
-  if (!state.playerOpen || event.target.closest("input, button:not(#expand-player), .drag-handle, .tile-menu")) return;
+  if (!state.playerOpen || sheetPeek || panelDrag?.settling ||
+      event.target.closest("input, button:not(#expand-player), .drag-handle, .tile-menu")) return;
   const panel = $("#player").dataset.panel;
   const list = $("#queue-list");
   let action;
-  if (panel === "queue") {
+  if (wheelPull) action = wheelPull.action;
+  else if (panel === "queue") {
     if ((event.deltaY < 0 && event.target.closest("#expand-player")) ||
         (event.deltaY < 0 && event.target.closest("#queue-list") &&
           list.scrollTop <= 1)) action = "song";
@@ -1726,41 +1918,52 @@ $("#player").addEventListener("wheel", (event) => {
     if (event.deltaY > 0 && (!playerCanScroll() || player.scrollTop >= limit - 1)) action = "close";
     else if (event.deltaY < 0 && (!playerCanScroll() || player.scrollTop <= 1)) action = "queue";
   }
-  if (!action) { pullDistance = 0; return; }
+  if (!action) return;
   const now = Date.now();
-  if (now < pullCooldown) return;
-  if (now - pullTime > 450) pullDistance = 0;
-  pullTime = now;
-  pullDistance += Math.abs(event.deltaY);
-  if (pullDistance < 90) return;
+  if (!wheelPull && now < pullCooldown) return;
   event.preventDefault();
-  pullDistance = 0;
-  pullCooldown = now + 600;
-  if (action === "close") closePlayer();
-  else setPlayerPanel(action, true, (panel === "queue" && !!event.target.closest("#queue-list")) ||
-    (panel === "song" && action === "queue"));
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    if (Math.abs(event.deltaY) < 90) return;
+    if (action === "close") closePlayer();
+    else setPlayerPanel(action, false);
+    pullCooldown = now + 550;
+    return;
+  }
+  if (!wheelPull) {
+    beginPanelDrag(action, panel === "queue" && !!event.target.closest("#expand-player"));
+    wheelPull = { action, distance: 0, at: now, timer: 0 };
+  }
+  const delta = Math.abs(event.deltaY) *
+    (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? innerHeight : 1);
+  const velocity = delta / Math.max(1, now - wheelPull.at);
+  wheelPull.at = now;
+  wheelPull.distance += delta;
+  applyPanelDrag(wheelPull.distance);
+  clearTimeout(wheelPull.timer);
+  if (wheelPull.distance >= 90) {
+    wheelPull = null;
+    pullCooldown = now + 550;
+    settlePanelDrag(true, velocity);
+  } else {
+    wheelPull.timer = setTimeout(() => {
+      wheelPull = null;
+      settlePanelDrag(false);
+    }, 320);
+  }
 }, { passive: false });
 let touchStart = null;
 let miniPull = null;
-function clearMiniPull(animate = false) {
-  const frame = miniPull?.frame;
-  miniPull = null;
-  if (!frame) return;
-  if (animate) {
-    const animation = frame.animate([
-      { transform: frame.style.transform }, { transform: `translateY(${innerHeight}px)` }
-    ], { duration: 180, easing: "ease-out" });
-    animation.onfinish = () => frame.remove();
-  } else frame.remove();
-}
 $("#player").addEventListener("touchstart", (event) => {
   touchStart = null;
-  clearMiniPull();
+  if (panelDrag?.action === "close" && panelDrag.settling && !state.playerOpen)
+    abortPanelDrag();
+  if (sheetPeek || panelDrag) return;
   if (event.touches.length !== 1 ||
       event.target.closest("input, .drag-handle, .tile-menu")) return;
   if (!state.playerOpen) {
     if (event.target.closest("button:not(#expand-player)")) return;
-    miniPull = { x: event.touches[0].clientX, y: event.touches[0].clientY, frame: null };
+    miniPull = { x: event.touches[0].clientX, y: event.touches[0].clientY,
+      drag: 0, at: performance.now(), velocity: 0 };
     return;
   }
   const panel = $("#player").dataset.panel;
@@ -1772,33 +1975,80 @@ $("#player").addEventListener("touchstart", (event) => {
     scrollTop: list.scrollTop, panel, banner };
 }, { passive: true });
 $("#player").addEventListener("touchmove", (event) => {
-  if (!miniPull || event.touches.length !== 1) return;
-  const dx = event.touches[0].clientX - miniPull.x;
-  const dy = event.touches[0].clientY - miniPull.y;
-  if (Math.abs(dx) > Math.abs(dy) * 1.3 || dy >= -8) return;
-  event.preventDefault();
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  if (!miniPull.frame) {
-    const frame = document.createElement("div");
-    frame.className = "player-drag player-open";
-    // One queue clone per drag; virtualize queue rows if very large queues make this slow.
-    frame.append(playerGhost());
-    document.body.append(frame);
-    miniPull.frame = frame;
+  if (event.touches.length !== 1) return;
+  if (miniPull) {
+    const dx = event.touches[0].clientX - miniPull.x;
+    const dy = event.touches[0].clientY - miniPull.y;
+    if (Math.abs(dx) > Math.abs(dy) * 1.3 || dy >= -8) return;
+    event.preventDefault();
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!sheetPeek) beginPeek();
+    const now = performance.now();
+    miniPull.velocity = Math.max(0, (-dy - miniPull.drag) / Math.max(1, now - miniPull.at));
+    miniPull.drag = -dy;
+    miniPull.at = now;
+    applyPeek(-dy);
+    return;
   }
-  miniPull.frame.style.transform = `translateY(${Math.max(0, innerHeight + dy)}px)`;
+  if (!touchStart || panelDrag?.settling ||
+      matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const dx = event.touches[0].clientX - touchStart.x;
+  const dy = event.touches[0].clientY - touchStart.y;
+  if (panelDrag) {
+    event.preventDefault();
+    const distance = panelDrag.direction * dy -
+      (touchStart.panel === "queue" && !touchStart.banner ? touchStart.scrollTop : 0);
+    const now = performance.now();
+    panelDrag.velocity = Math.max(0, (distance - panelDrag.distance) /
+      Math.max(1, now - panelDrag.at));
+    panelDrag.at = now;
+    applyPanelDrag(distance);
+    return;
+  }
+  if (Math.abs(dx) > Math.abs(dy) * 1.3 || Math.abs(dy) < 8) return;
+  const { panel, banner, scrollTop } = touchStart;
+  let action, distance;
+  if (panel === "queue") {
+    if (banner) { action = dy < 0 ? "song" : "close"; distance = Math.abs(dy); }
+    else if (dy > scrollTop && $("#queue-list").scrollTop <= 1) {
+      action = "song"; distance = dy - scrollTop;
+    }
+  } else {
+    const player = $("#player");
+    const limit = player.scrollHeight - player.clientHeight;
+    if (dy > 0 && (!playerCanScroll() || player.scrollTop <= 1)) {
+      action = "close"; distance = dy;
+    } else if (dy < 0 && (!playerCanScroll() || player.scrollTop >= limit - 1)) {
+      action = "queue"; distance = -dy;
+    }
+  }
+  if (!action) return;
+  event.preventDefault();
+  if (!panelDrag) beginPanelDrag(action, panel === "queue" && banner && dy < 0);
+  const now = performance.now();
+  panelDrag.velocity = Math.max(0, (distance - panelDrag.distance) /
+    Math.max(1, now - panelDrag.at));
+  panelDrag.at = now;
+  applyPanelDrag(distance);
 }, { passive: false });
 $("#player").addEventListener("touchend", (event) => {
   if (miniPull) {
-    const { x, y, frame } = miniPull;
+    const { x, y, velocity } = miniPull;
+    miniPull = null;
     const dx = event.changedTouches[0].clientX - x;
     const dy = event.changedTouches[0].clientY - y;
     const opened = dy < -80 && Math.abs(dy) > Math.abs(dx) * 1.3;
-    if (frame || opened) event.preventDefault();
-    if (opened) {
-      clearMiniPull();
-      openPlayer(Math.max(0, innerHeight + dy));
-    } else clearMiniPull(!!frame);
+    if (sheetPeek || opened) event.preventDefault();
+    if (sheetPeek) settlePeek(opened, velocity);
+    else if (opened) openPlayer(Math.max(0, innerHeight + dy));
+    return;
+  }
+  if (panelDrag && !panelDrag.settling) {
+    event.preventDefault();
+    const distance = panelDrag.distance;
+    const velocity = panelDrag.velocity;
+    touchStart = null;
+    settlePanelDrag(distance > 100 || (distance > 25 && velocity > .65), velocity);
     return;
   }
   if (!touchStart || event.changedTouches.length !== 1) return;
@@ -1832,7 +2082,12 @@ $("#player").addEventListener("touchend", (event) => {
     setPlayerPanel("queue", true, true);
   }
 }, { passive: false });
-$("#player").addEventListener("touchcancel", () => { touchStart = null; clearMiniPull(); });
+$("#player").addEventListener("touchcancel", () => {
+  touchStart = null;
+  miniPull = null;
+  if (sheetPeek) settlePeek(false);
+  if (panelDrag) settlePanelDrag(false);
+});
 $("#play").addEventListener("click", togglePlay);
 $("#previous").addEventListener("click", () => move(-1));
 $("#next").addEventListener("click", () => move(1));

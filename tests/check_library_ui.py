@@ -62,6 +62,7 @@ with tempfile.TemporaryDirectory() as temp:
               setView('playlists');
               return {ghost: !!document.querySelector('.view-slide-frame'),
                 from: main.getAnimations()[0].effect.getKeyframes()[0].transform,
+                duration: main.getAnimations()[0].effect.getTiming().duration,
                 width: main.getBoundingClientRect().width};
             }""")
             assert slide["ghost"] and str(round(slide["width"])) in slide["from"]
@@ -98,8 +99,25 @@ with tempfile.TemporaryDirectory() as temp:
             }"""
             page.evaluate(swipe, {"selector": "#track-list .track-meta", "dx": 12, "dy": 150})
             assert page.locator("#page-title").inner_text() == "Audio"
+            drag = page.evaluate("""() => {
+              const target = document.querySelector('#track-list .track-meta');
+              const send = (type, x) => {
+                const touch = new Touch({identifier: 7, target, clientX: x, clientY: 350});
+                target.dispatchEvent(new TouchEvent(type, {bubbles: true, cancelable: true,
+                  touches: type === 'touchend' ? [] : [touch], changedTouches: [touch]}));
+              };
+              send('touchstart', 180); send('touchmove', 138);
+              const first = main.style.transform;
+              send('touchmove', 110);
+              const second = main.style.transform;
+              send('touchend', 110);
+              return {first, second};
+            }""")
+            assert drag == {"first": "translateX(-42px)", "second": "translateX(-70px)"}
+            page.wait_for_timeout(180)
             page.evaluate(swipe, {"selector": "#track-list .track-meta", "dx": -140})
             assert page.locator("#page-title").inner_text() == "Playlists"
+            assert page.locator("#main").evaluate("e => e.getAnimations()[0].effect.getTiming().duration") < slide["duration"]
             page.evaluate(swipe, {"selector": "#playlist-list", "dx": -140})
             assert page.locator("#page-title").inner_text() == "Playlists"
             page.evaluate(swipe, {"selector": ".content", "dx": 140})
@@ -184,11 +202,11 @@ with tempfile.TemporaryDirectory() as temp:
             before = page.evaluate("JSON.parse(localStorage.ytmp3_queue)")
             assert page.locator('.nav-item').count() == 4
             page.evaluate(swipe, {"selector": "#expand-player", "dx": 0, "dy": -35})
-            assert page.locator("body.player-open").count() == 0
             page.wait_for_timeout(220)
-            assert page.locator(".player-drag").count() == 0
+            assert page.locator("body.player-open").count() == 0
             preview = page.evaluate("""() => {
               const target = document.querySelector('#expand-player');
+              const startTop = target.getBoundingClientRect().top;
               const send = (type, y) => {
                 const touch = new Touch({identifier: 9, target, clientX: 180, clientY: y});
                 target.dispatchEvent(new TouchEvent(type, {bubbles: true, cancelable: true,
@@ -196,10 +214,12 @@ with tempfile.TemporaryDirectory() as temp:
               };
               send('touchstart', 700);
               send('touchmove', 570);
-              return {top: document.querySelector('.player-drag')?.getBoundingClientRect().top,
-                height: innerHeight};
+              return {top: target.getBoundingClientRect().top, startTop,
+                peek: document.body.classList.contains('player-peek'),
+                clone: document.querySelector('.player-drag')};
             }""")
-            assert preview["top"] is not None and 0 < preview["top"] < preview["height"]
+            assert preview["peek"] and preview["clone"] is None
+            assert abs(preview["top"] - (preview["startTop"] - 130)) < 2, preview
             page.screenshot(path=str(Path(tempfile.gettempdir()) / "ytmp3-mini-drag.png"))
             page.evaluate("""() => {
               const target = document.querySelector('#expand-player');
@@ -208,7 +228,7 @@ with tempfile.TemporaryDirectory() as temp:
                 touches: [], changedTouches: [touch]}));
             }""")
             assert page.locator("body.player-open").count() == 1
-            assert page.locator(".player-drag").count() == 0
+            assert page.locator("body.player-peek").count() == 1
             page.wait_for_timeout(120)
             page.screenshot(path=str(Path(tempfile.gettempdir()) / "ytmp3-player-mid.png"), animations="allow")
             page.wait_for_timeout(350)
@@ -226,6 +246,23 @@ with tempfile.TemporaryDirectory() as temp:
             assert page.locator("#expand-player").bounding_box()["y"] == banner_y
             page.locator("#scroll-check").evaluate("e => e.remove()")
             page.locator("#queue-list").evaluate("e => e.scrollTop = 0")
+            pull = page.evaluate("""() => {
+              const target = document.querySelector('#queue-list .queue-play');
+              const send = (type, y) => {
+                const touch = new Touch({identifier: 6, target, clientX: 160, clientY: y});
+                target.dispatchEvent(new TouchEvent(type, {bubbles: true, cancelable: true,
+                  touches: type === 'touchend' ? [] : [touch], changedTouches: [touch]}));
+              };
+              send('touchstart', 350); send('touchmove', 410);
+              const first = document.querySelector('.player-panel-ghost').style.transform;
+              send('touchmove', 370);
+              const second = document.querySelector('.player-panel-ghost').style.transform;
+              send('touchend', 370);
+              return {first, second};
+            }""")
+            assert pull == {"first": "translateY(60px)", "second": "translateY(20px)"}
+            page.locator(".player-panel-ghost").wait_for(state="detached")
+            assert page.locator("#player").get_attribute("data-panel") == "queue"
             page.screenshot(path=str(root / "queue.png"), full_page=True)
             shutil.copy2(root / "queue.png", Path(tempfile.gettempdir()) / "ytmp3-queue-check.png")
             page.locator("#expand-player").click()
@@ -313,24 +350,24 @@ with tempfile.TemporaryDirectory() as temp:
             page.evaluate(swipe, {"selector": "#expand-player", "dx": 0, "dy": 140})
             page.locator("body.player-open").wait_for(state="detached")
             page.locator("#expand-player").click()
-            page.wait_for_timeout(350)
+            page.locator("body.player-peek").wait_for(state="detached")
             page.evaluate(swipe, {"selector": "#expand-player", "dx": 0, "dy": -140})
             assert page.locator("#player").get_attribute("data-panel") == "song"
             page.wait_for_timeout(350)
             page.evaluate(swipe, {"selector": "#player .player-art", "dx": 0, "dy": -140})
             assert page.locator("#player").get_attribute("data-panel") == "queue"
-            assert page.locator(".player-panel-ghost").evaluate("e => e.getAnimations()[0].effect.getKeyframes()[1].transform") == "translateY(-100%)"
+            assert page.locator(".player-panel-ghost").evaluate("e => e.getAnimations()[0].effect.getKeyframes()[1].transform") == f"translateY(-{page.evaluate('innerHeight')}px)"
             page.wait_for_timeout(350)
             page.evaluate(swipe, {"selector": "#expand-player", "dx": 0, "dy": 140})
             page.locator("body.player-open").wait_for(state="detached")
             page.locator("#expand-player").click()
-            page.wait_for_timeout(350)
+            page.locator("body.player-peek").wait_for(state="detached")
             page.evaluate(swipe, {"selector": "#expand-player", "dx": 0, "dy": -140})
             page.wait_for_timeout(350)
             page.evaluate(swipe, {"selector": "#player .player-art", "dx": 0, "dy": 140})
             page.locator("body.player-open").wait_for(state="detached")
             page.locator("#expand-player").click()
-            page.wait_for_timeout(350)
+            page.locator("body.player-peek").wait_for(state="detached")
             page.locator("#queue-list").evaluate("""e => {
               e.querySelector('#queue-end-check')?.remove();
               const spacer = document.createElement('div'); spacer.id = 'queue-end-check';
@@ -342,7 +379,7 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator("#queue-list").evaluate("e => e.scrollTop = 0")
             page.evaluate(swipe, {"selector": "#queue-list .queue-play", "dx": 0, "dy": 140})
             assert page.locator("#player").get_attribute("data-panel") == "song"
-            assert page.locator("#player").evaluate("e => e.getAnimations()[0].effect.getKeyframes()[0].transform") == "translateY(-100%)"
+            assert page.locator(".player-panel-ghost").evaluate("e => e.getAnimations()[0].effect.getKeyframes()[0].transform") == "translateY(140px)"
             page.wait_for_timeout(350)
             page.evaluate(swipe, {"selector": "#player .player-art", "dx": 0, "dy": -140})
             page.wait_for_timeout(350)
@@ -355,6 +392,10 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator("#queue-list").dispatch_event("wheel", {"deltaY": 120})
             assert page.locator("#player").get_attribute("data-panel") == "queue"
             page.locator("#queue-list").evaluate("e => e.scrollTop = 0")
+            page.locator("#queue-list").dispatch_event("wheel", {"deltaY": -40})
+            assert page.locator(".player-panel-ghost").evaluate("e => e.style.transform") == "translateY(40px)"
+            page.locator(".player-panel-ghost").wait_for(state="detached")
+            assert page.locator("#player").get_attribute("data-panel") == "queue"
             page.locator("#queue-list").dispatch_event("wheel", {"deltaY": -120})
             assert page.locator("#player").get_attribute("data-panel") == "song"
             page.evaluate("document.querySelector('#queue-end-check')?.remove()")
@@ -413,6 +454,7 @@ with tempfile.TemporaryDirectory() as temp:
             assert tablet.locator("html").get_attribute("data-theme") == "light"
             tablet.locator("#play-selection").click()
             tablet.locator("#expand-player").click()
+            tablet.locator("body.player-peek").wait_for(state="detached")
             assert tablet.locator("#queue-list").bounding_box()["width"] <= 768
             tablet.screenshot(path=str(root / "tablet-queue.png"), full_page=True)
             shutil.copy2(root / "tablet-queue.png", Path(tempfile.gettempdir()) / "ytmp3-tablet-queue-check.png")

@@ -1,5 +1,5 @@
 {
-  "version": "0.6.11",
-  "android_apk_url": "https://drive.google.com/open?id=1lFC4Zl5sm3tc1O7FJTP23ObJIwBRohjh",
-  "notes": "The mini-player banner expands with your drag. Queue and song pulls, screen swipes, and trackpad overscroll now move continuously and settle from where you release."
+  "version": "0.6.12",
+  "android_apk_url": "https://drive.google.com/open?id=1LLIzduq-OCRCTvibK4wpvfJNZl1nDuLW",
+  "notes": "Faster motion throughout the app. Gesture releases finish within 210 ms, tap transitions take about 180 ms, and short trackpad pulls return sooner."
 }

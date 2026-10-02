@@ -1,5 +1,5 @@
 {
-  "version": "0.6.12",
-  "android_apk_url": "https://drive.google.com/open?id=1LLIzduq-OCRCTvibK4wpvfJNZl1nDuLW",
-  "notes": "Faster motion throughout the app. Gesture releases finish within 210 ms, tap transitions take about 180 ms, and short trackpad pulls return sooner."
+  "version": "1.0.0",
+  "android_apk_url": "https://drive.google.com/open?id=1qNXgsdFoGVebydVUhnZ8VtfD_chXT5U4",
+  "notes": "Test build: faster long-queue loading and improved playback recovery. Bundled Android native source provenance remains under review; see THIRD_PARTY.md in the release folder."
 }

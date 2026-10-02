@@ -25,5 +25,6 @@ availability of its bundled native runtime before broader distribution.
 
 The upstream [build-provenance request](https://github.com/yausername/youtubedl-android/issues/363)
 for the 0.18.1 prebuilt runtime is still open; its tagged build notes do not
-identify all inputs that produced those binaries. Keep the APK in test
-distribution until corresponding source and notices can be verified.
+identify all inputs that produced those binaries. The APK is labeled a test
+build while corresponding source and notices are reviewed; this remains an
+unresolved compliance risk for wider redistribution.

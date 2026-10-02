@@ -505,25 +505,38 @@ function renderBrowseTracks() {
     list.innerHTML = '<div class="empty"><strong>No media here</strong><p>Add a music folder in More or save a link above.</p></div>';
     return;
   }
-  for (const track of tracks.slice(0, state.browseLimit)) {
-    const row = trackRow(track, "browse");
-    row.classList.add("browse-track");
-    row.querySelector(".track-meta span").textContent = [track.folder, track.duration ? formatTime(track.duration) : null].filter(Boolean).join(" · ");
-    row.addEventListener("click", (event) => {
-      if (!event.target.closest("button, summary, details, input")) {
-        state.queue = tracks.map((item) => item.id);
-        playTrack(track.id);
-      }
-    });
-    list.append(row);
-  }
-  if (tracks.length > state.browseLimit) {
+  const appendRows = (start, end) => {
+    const fragment = document.createDocumentFragment();
+    for (const track of tracks.slice(start, end)) {
+      const row = trackRow(track, "browse");
+      row.classList.add("browse-track");
+      row.querySelector(".track-meta span").textContent = [track.folder, track.duration ? formatTime(track.duration) : null].filter(Boolean).join(" · ");
+      row.addEventListener("click", (event) => {
+        if (!event.target.closest("button, summary, details, input")) {
+          state.queue = tracks.map((item) => item.id);
+          playTrack(track.id);
+        }
+      });
+      fragment.append(row);
+    }
+    list.append(fragment);
+  };
+  appendRows(0, Math.min(state.browseLimit, tracks.length));
+  const showMore = () => {
+    if (state.browseLimit >= tracks.length) return;
     const more = document.createElement("button");
     more.className = "row-button show-more";
     more.textContent = `Show ${Math.min(100, tracks.length - state.browseLimit)} more`;
-    more.addEventListener("click", () => { state.browseLimit += 100; renderBrowseTracks(); });
+    more.addEventListener("click", () => {
+      more.remove();
+      const start = state.browseLimit;
+      state.browseLimit = Math.min(tracks.length, start + 100);
+      appendRows(start, state.browseLimit);
+      showMore();
+    });
     list.append(more);
-  }
+  };
+  showMore();
 }
 
 function browseTracks() {
@@ -1058,8 +1071,18 @@ function trackRow(track, context = "library", index = -1, list = null) {
     row.addEventListener("pointercancel", () => clearTimeout(timer));
     row.addEventListener("click", (event) => {
       if (longPressed) { longPressed = false; return; }
-      if (state.selectionMode && !event.target.closest("button,summary,details,input,a"))
-        toggleTrackSelection(track.id);
+      if (event.target.closest("button,summary,details,input,a")) return;
+      if (state.selectionMode) toggleTrackSelection(track.id);
+      else {
+        state.queue = visibleTracks().map((item) => item.id);
+        playTrack(track.id);
+      }
+    });
+  } else if (context === "playlist") {
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("button,summary,details,input,a")) return;
+      state.queue = list.tracks.filter((id) => state.trackById.has(id));
+      playTrack(track.id);
     });
   }
   return row;
@@ -1270,8 +1293,11 @@ $("#create-playlist").addEventListener("submit", (event) => {
   if (state.view === "playlists") renderPlaylists();
 });
 
+let queueObserver = null;
 function renderQueue() {
   const list = $("#queue-list");
+  queueObserver?.disconnect();
+  queueObserver = null;
   $("#queue-count").textContent = `${state.queue.length} ${state.queue.length === 1 ? "track" : "tracks"}`;
   $("#queue-play-toggle").disabled = !state.queue.length;
   $("#queue-previous").disabled = state.queue.length < 2;
@@ -1287,18 +1313,51 @@ function renderQueue() {
     list.innerHTML = '<div class="empty"><strong>Queue is empty</strong><p>Play a track from Audio.</p></div>';
     return;
   }
-  state.queue.forEach((id, index) => {
-    const track = state.trackById.get(id);
-    if (track) list.append(trackRow(track, "queue", index));
-    else {
-      const missing = document.createElement("div"); missing.className = "playlist-track";
-      missing.textContent = "Unavailable track ";
-      const remove = document.createElement("button"); remove.type = "button"; remove.className = "row-button";
-      remove.textContent = "Remove";
-      remove.addEventListener("click", () => removeQueueIndex(index));
-      missing.append(remove); list.append(missing);
+  let shown = 0;
+  const appendRows = () => {
+    const end = Math.min(shown + 100, state.queue.length);
+    const fragment = document.createDocumentFragment();
+    for (let index = shown; index < end; index++) {
+      const track = state.trackById.get(state.queue[index]);
+      if (track) fragment.append(trackRow(track, "queue", index));
+      else {
+        const missing = document.createElement("div"); missing.className = "playlist-track";
+        missing.textContent = "Unavailable track ";
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "row-button";
+        remove.textContent = "Remove";
+        remove.addEventListener("click", () => removeQueueIndex(index));
+        missing.append(remove); fragment.append(missing);
+      }
     }
-  });
+    shown = end;
+    list.append(fragment);
+  };
+  appendRows();
+  if (shown < state.queue.length) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "row-button show-more";
+    const next = () => {
+      queueObserver?.unobserve(more);
+      more.remove();
+      appendRows();
+      if (shown < state.queue.length) {
+        more.textContent = `Show ${Math.min(100, state.queue.length - shown)} more queued tracks`;
+        list.append(more);
+        queueObserver?.observe(more);
+      } else { queueObserver?.disconnect(); queueObserver = null; }
+    };
+    more.textContent = `Show ${Math.min(100, state.queue.length - shown)} more queued tracks`;
+    more.addEventListener("click", next);
+    list.append(more);
+    if ("IntersectionObserver" in window) {
+      const observer = new IntersectionObserver((entries) => {
+        if (queueObserver === observer && entries.some((entry) => entry.isIntersecting)) next();
+      }, { root: list, rootMargin: "200px" });
+      queueObserver = observer;
+      observer.observe(more);
+    }
+  }
 }
 $("#clear-queue").addEventListener("click", () => {
   state.queue = []; state.current = -1; audio.pause();
@@ -1651,9 +1710,13 @@ function move(direction, fromEnd = false) {
 }
 function updatePlayer() {
   const track = currentTrack();
-  $("#player-title").textContent = track ? titleOf(track) : "Nothing playing";
-  $("#player-subtitle").textContent = track ? [track.artist, track.album].filter(Boolean).join(" · ") || track.folder || "Personal library"
-    : "Choose a file from your library";
+  const setText = (selector, value) => {
+    const element = $(selector);
+    if (element.textContent !== value) element.textContent = value;
+  };
+  setText("#player-title", track ? titleOf(track) : "Nothing playing");
+  setText("#player-subtitle", track ? [track.artist, track.album].filter(Boolean).join(" · ") || track.folder || "Personal library"
+    : "Choose a file from your library");
   const playerArt = $(".player-art");
   const artKey = `${track?.id || ""}:${state.artVersion}`;
   if (playerArt.dataset.key !== artKey) {
@@ -1664,12 +1727,15 @@ function updatePlayer() {
   const duration = native ? Math.ceil((state.nativePlayback.duration || 0) / 1000) : audio.duration;
   const position = Math.min(duration || Infinity,
     native ? (state.nativePlayback.position || 0) / 1000 : audio.currentTime);
-  $("#play").textContent = playing ? "Ⅱ" : "▶";
-  $("#play").setAttribute("aria-label", playing ? "Pause" : "Play");
-  $("#queue-play-toggle").textContent = playing ? "Pause" : "Play";
-  $("#elapsed").textContent = formatTime(position);
-  $("#duration").textContent = formatTime(duration);
-  $("#seek").value = duration ? Math.round(position / duration * 1000) : 0;
+  setText("#play", playing ? "Ⅱ" : "▶");
+  const playLabel = playing ? "Pause" : "Play";
+  if ($("#play").getAttribute("aria-label") !== playLabel)
+    $("#play").setAttribute("aria-label", playLabel);
+  setText("#queue-play-toggle", playLabel);
+  setText("#elapsed", formatTime(position));
+  setText("#duration", formatTime(duration));
+  const seekValue = String(duration ? Math.round(position / duration * 1000) : 0);
+  if ($("#seek").value !== seekValue) $("#seek").value = seekValue;
 }
 let sheetPeek = null;
 function clearPeekStyles(player) {

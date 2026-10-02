@@ -397,7 +397,10 @@ class AppHandler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
         if self.command != "HEAD":
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                pass  # Browsers can cancel an image request after headers are sent.
 
     def _json(self, status: int, value: object) -> None:
         self._send(status, json.dumps(value).encode("utf-8"), "application/json; charset=utf-8")

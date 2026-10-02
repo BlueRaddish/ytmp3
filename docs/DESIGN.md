@@ -40,6 +40,9 @@ Let touch pulls and trackpad overscroll move the current sheet before release.
 Settle from that position, with the remaining duration based on distance and drag speed.
 Keep release motion within 75–210 ms, tap transitions around 180 ms, and wheel
 gesture idle waits short enough that a cancelled pull returns promptly.
+Build long queues in groups of 100 rows and load the next group near the scroll
+end. Browse adds new rows without rebuilding the ones already on screen. Keep
+the expanding player layout contained while its height follows the finger.
 Preserve Back and Close buttons for precise navigation. Queue and playlist rows use a grip
 instead of visible position numbers.
 Swipe horizontally between Browse, Audio, Playlists, and More on touchscreens;
@@ -195,3 +198,12 @@ v0.6.8. A mini-player pull opened the queue; a queue-top pull opened the song
 view; a downward song pull returned to Audio. Browser interaction checks covered
 the transition timings, faster release after a swift swipe, and the existing
 gesture directions. The S10 was disconnected during this pass.
+
+For v1.0.0, the Galaxy S10 retained its library after an in-place install. A
+10-second MP3 looped in the background for over ten minutes with an active media
+session and no playback stall in the app log. Tapping its media notification
+returned to the queue without stopping playback. Queue pull-down opened the
+song view, song pull-up returned to the queue, and song pull-down collapsed to
+Audio. The synthetic 1,000-track browser probe reduced queue rendering from
+about 37 ms to 3–9 ms by rendering 100 rows initially; actual frame smoothness
+still depends on the device and library size.

@@ -58,6 +58,18 @@ with tempfile.TemporaryDirectory() as temp:
             assert page.locator("#track-list .track-row").count() == 2
             assert page.locator("#track-list .track-art img").count() == 2
             assert page.locator("#track-list .track-art img").first.evaluate("e => e.naturalWidth") > 0
+            page.locator("#track-list .track-meta").first.click()
+            page.evaluate("audio.pause()")
+            assert page.evaluate("state.current === 0 && state.queue.length === 2")
+            assert page.evaluate("""() => {
+              const title = document.querySelector('#player-title');
+              const observer = new MutationObserver(() => {});
+              observer.observe(title, {childList: true, characterData: true, subtree: true});
+              updatePlayer(); updatePlayer();
+              const mutations = observer.takeRecords().length;
+              observer.disconnect();
+              return mutations === 0;
+            }""")
             slide = page.evaluate("""() => {
               setView('playlists');
               return {ghost: !!document.querySelector('.view-slide-frame'),
@@ -415,6 +427,9 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator('.nav-item[data-view="playlists"]').click()
             assert page.locator('.nav-item[data-view="playlists"] .nav-list-icon').count() == 1
             assert page.locator(".playlist-card").count() == 1
+            page.locator("#playlist-tracks .track-meta").first.click()
+            page.evaluate("audio.pause()")
+            assert page.evaluate("state.current === 0 && state.queue.length === 2")
             assert page.locator("#new-playlist .action-icon").count() == 1
             assert page.locator("#playlist-play .action-icon").count() == 1
             page.locator("#new-playlist").click()
@@ -451,6 +466,41 @@ with tempfile.TemporaryDirectory() as temp:
             desktop.screenshot(path=str(root / "desktop-browse.png"), full_page=True)
             shutil.copy2(root / "desktop-browse.png", Path(tempfile.gettempdir()) / "ytmp3-desktop-browse-check.png")
             desktop.close()
+            stress = browser.new_page(viewport={"width": 390, "height": 844})
+            stress.goto(f"http://127.0.0.1:{server.server_port}/?key={server.key}")
+            stress.locator("#track-list .track-row").first.wait_for()
+            stress.evaluate("""() => {
+              state.tracks = Array.from({length: 240}, (_, index) => ({
+                id: `large-${index}.mp3`, title: `Track ${index}`, folder: 'Album',
+                artist: 'Artist', duration: 180, modified: 240 - index, size: 1000000
+              }));
+              state.trackById = new Map(state.tracks.map(track => [track.id, track]));
+              state.queue = state.tracks.map(track => track.id);
+              state.current = 0;
+              renderQueue();
+            }""")
+            assert stress.locator("#queue-list .track-row").count() == 100
+            stress.locator("#expand-player").click()
+            stress.locator("body.player-peek").wait_for(state="detached")
+            stress.locator("#queue-list .show-more").evaluate("e => e.click()")
+            assert stress.locator("#queue-list .track-row").count() == 200
+            stress.locator("#queue-list").evaluate("e => e.scrollTop = e.scrollHeight")
+            stress.locator("#queue-list .track-row").nth(239).wait_for()
+            assert stress.locator("#queue-list .track-row").count() == 240
+            stress.evaluate("""() => {
+              state.playerOpen = false;
+              document.body.classList.remove('player-open');
+              state.view = 'browse';
+              render(false);
+            }""")
+            assert stress.locator("#browse-tracks .track-row").count() == 100
+            first_browse_row = stress.locator("#browse-tracks .track-row").first.element_handle()
+            stress.locator("#browse-tracks .show-more").click()
+            assert stress.locator("#browse-tracks .track-row").count() == 200
+            assert first_browse_row.evaluate("e => e.isConnected")
+            stress.locator("#browse-tracks .show-more").click()
+            assert stress.locator("#browse-tracks .track-row").count() == 240
+            stress.close()
             tablet = browser.new_page(viewport={"width": 768, "height": 900})
             tablet.goto(f"http://127.0.0.1:{server.server_port}/?key={server.key}")
             tablet.locator("#track-list .track-row").first.wait_for()

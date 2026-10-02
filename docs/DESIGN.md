@@ -38,6 +38,8 @@ scroll past the top of the queue to enter the song view. The queue menu has
 playback controls; a queued track's menu can play it now, next, or last.
 Let touch pulls and trackpad overscroll move the current sheet before release.
 Settle from that position, with the remaining duration based on distance and drag speed.
+Keep release motion within 75–210 ms, tap transitions around 180 ms, and wheel
+gesture idle waits short enough that a cancelled pull returns promptly.
 Preserve Back and Close buttons for precise navigation. Queue and playlist rows use a grip
 instead of visible position numbers.
 Swipe horizontally between Browse, Audio, Playlists, and More on touchscreens;
@@ -185,3 +187,11 @@ reveal the song view, and a downward song pull exposed the library and mini
 player. Browser checks measured one-to-one banner movement, a reversible short
 queue pull, and a trackpad pull that settled back below the threshold. The S10
 was disconnected during this pass.
+
+For v0.6.12, shared motion timing caps gesture settling at 210 ms and shortens
+tap transitions to 170–180 ms. Wheel previews return after 170 ms of inactivity.
+The Android 35 emulator retained its two-track library after upgrading from
+v0.6.8. A mini-player pull opened the queue; a queue-top pull opened the song
+view; a downward song pull returned to Audio. Browser interaction checks covered
+the transition timings, faster release after a swift swipe, and the existing
+gesture directions. The S10 was disconnected during this pass.

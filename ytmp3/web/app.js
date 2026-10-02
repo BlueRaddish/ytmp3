@@ -249,9 +249,11 @@ const viewScroll = new Map();
 history.scrollRestoration = "manual";
 let viewSlide = null;
 let suppressPlayerExit = false;
-function finishDuration(distance, velocity, minimum = 120, maximum = 380) {
-  return Math.max(minimum, Math.min(maximum,
-    Math.max(0, distance) / Math.max(1.1, velocity)));
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const motionEase = "cubic-bezier(.2,.8,.2,1)";
+function finishDuration(distance, velocity = 0, maximum = 210) {
+  return Math.max(75, Math.min(maximum,
+    Math.max(0, distance) / Math.max(3, 3 + 2 * velocity)));
 }
 function stopViewSlide() {
   if (!viewSlide) return;
@@ -265,7 +267,7 @@ function setView(view, push = true, startX = 0, velocity = 0) {
   stopViewSlide();
   main.getAnimations().forEach((animation) => animation.cancel());
   const direction = Math.sign(views.indexOf(view) - views.indexOf(state.view));
-  const motion = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const motion = !reducedMotion.matches;
   let frame, old;
   if (motion) {
     const rect = main.getBoundingClientRect();
@@ -295,8 +297,8 @@ function setView(view, push = true, startX = 0, velocity = 0) {
     old.setAttribute("aria-hidden", "true");
     document.body.append(frame);
     const distance = main.getBoundingClientRect().width * direction;
-    const timing = { duration: finishDuration(Math.abs(distance) - Math.abs(startX), velocity, 120, 320),
-      easing: "cubic-bezier(.22,.75,.2,1)" };
+    const timing = { duration: finishDuration(Math.abs(distance) - Math.abs(startX), velocity),
+      easing: motionEase };
     const outgoing = old.animate([
       { transform: `translateX(${startX}px)` }, { transform: `translateX(${-distance}px)` }
     ], timing);
@@ -338,9 +340,9 @@ function adjacentView(direction, startX = 0, velocity = 0) {
 function settleViewDrag(x, velocity = 0) {
   main.style.transform = "";
   main.style.willChange = "";
-  if (x && !matchMedia("(prefers-reduced-motion: reduce)").matches)
+  if (x && !reducedMotion.matches)
     main.animate([{ transform: `translateX(${x}px)` }, { transform: "translateX(0)" }],
-      { duration: finishDuration(Math.abs(x), velocity, 100, 250), easing: "ease-out" });
+      { duration: finishDuration(Math.abs(x), velocity, 150), easing: motionEase });
 }
 let viewTouch = null;
 $(".workspace").addEventListener("touchstart", (event) => {
@@ -356,7 +358,7 @@ $(".workspace").addEventListener("touchmove", (event) => {
   if (!viewTouch || event.touches.length !== 1) return;
   const dx = event.touches[0].clientX - viewTouch.x;
   const dy = event.touches[0].clientY - viewTouch.y;
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (reducedMotion.matches) return;
   if (!viewTouch.axis && Math.max(Math.abs(dx), Math.abs(dy)) > 18)
     viewTouch.axis = Math.abs(dx) > Math.abs(dy) * 1.3 ? "horizontal" : "vertical";
   if (viewTouch.axis === "horizontal") {
@@ -397,16 +399,16 @@ $(".workspace").addEventListener("wheel", (event) => {
       event.metaKey || Math.abs(event.deltaX) < Math.abs(event.deltaY) * 1.4) return;
   const now = Date.now();
   if (now < wheelCooldown) return;
-  if (now - wheelAt > 350 || Math.sign(wheelTravel) !== Math.sign(event.deltaX)) wheelTravel = 0;
+  if (now - wheelAt > 260 || Math.sign(wheelTravel) !== Math.sign(event.deltaX)) wheelTravel = 0;
   const elapsed = Math.max(1, now - wheelAt);
   wheelAt = now;
   wheelTravel += event.deltaX * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? innerWidth : 1);
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  if (reducedMotion.matches) {
     if (Math.abs(wheelTravel) < 100) return;
     event.preventDefault();
     adjacentView(wheelTravel > 0 ? 1 : -1);
     wheelTravel = 0;
-    wheelCooldown = now + 550;
+    wheelCooldown = now + 320;
     return;
   }
   event.preventDefault();
@@ -422,12 +424,12 @@ $(".workspace").addEventListener("wheel", (event) => {
     wheelSettle = setTimeout(() => {
       if (state.view === origin && !viewTouch) settleViewDrag(offset);
       wheelTravel = 0;
-    }, 320);
+    }, 170);
     return;
   }
   adjacentView(direction, offset, Math.abs(event.deltaX) / elapsed);
   wheelTravel = 0;
-  wheelCooldown = now + 550;
+  wheelCooldown = now + 320;
 }, { passive: false });
 
 function render(includeQueue = true) {
@@ -1670,20 +1672,23 @@ function updatePlayer() {
   $("#seek").value = duration ? Math.round(position / duration * 1000) : 0;
 }
 let sheetPeek = null;
-function abortPeek() {
-  if (!sheetPeek) return;
-  cancelAnimationFrame(sheetPeek.frame);
-  sheetPeek = null;
+function clearPeekStyles(player) {
   document.body.classList.remove("player-peek");
-  const player = $("#player");
   for (const name of ["--peek-progress", "--peek-header", "--peek-height", "--peek-track-height"])
     player.style.removeProperty(name);
+}
+function abortPeek() {
+  if (!sheetPeek) return;
+  const { frame, player } = sheetPeek;
+  cancelAnimationFrame(frame);
+  sheetPeek = null;
+  clearPeekStyles(player);
 }
 function applyPeek(drag) {
   if (!sheetPeek) return;
   sheetPeek.drag = Math.max(0, Math.min(sheetPeek.travel, drag));
   const progress = sheetPeek.drag / sheetPeek.travel;
-  const player = $("#player");
+  const { player } = sheetPeek;
   player.style.setProperty("--peek-progress", progress);
   player.style.setProperty("--peek-header", `${64 * progress}px`);
   player.style.setProperty("--peek-track-height",
@@ -1694,7 +1699,7 @@ function applyPeek(drag) {
 function beginPeek() {
   const player = $("#player");
   const top = $("#expand-player").getBoundingClientRect().top;
-  sheetPeek = { base: innerHeight - top, travel: Math.max(1, top - 64),
+  sheetPeek = { player, base: innerHeight - top, travel: Math.max(1, top - 64),
     trackHeight: player.getBoundingClientRect().height, drag: 0, frame: 0 };
   document.body.classList.add("player-open", "player-peek");
   player.dataset.panel = "queue";
@@ -1710,8 +1715,7 @@ function settlePeek(open, velocity = 0) {
     state.playerOpen = true;
     history.pushState({ view: state.view, player: true }, "", "#player");
   }
-  const duration = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 :
-    finishDuration(Math.abs(to - from), velocity, 120, 430);
+  const duration = reducedMotion.matches ? 0 : finishDuration(Math.abs(to - from), velocity);
   const started = performance.now();
   const step = (now) => {
     if (sheetPeek !== peek) return;
@@ -1720,11 +1724,8 @@ function settlePeek(open, velocity = 0) {
     applyPeek(from + (to - from) * eased);
     if (t < 1) { peek.frame = requestAnimationFrame(step); return; }
     sheetPeek = null;
-    document.body.classList.remove("player-peek");
+    clearPeekStyles(peek.player);
     if (!open) document.body.classList.remove("player-open");
-    const player = $("#player");
-    for (const name of ["--peek-progress", "--peek-header", "--peek-height", "--peek-track-height"])
-      player.style.removeProperty(name);
     if (open) $("#close-player").focus({ preventScroll: true });
   };
   peek.frame = requestAnimationFrame(step);
@@ -1732,7 +1733,7 @@ function settlePeek(open, velocity = 0) {
 function openPlayer(startY = innerHeight) {
   if (state.playerOpen || sheetPeek) return;
   if (matchMedia("(max-width: 839px)").matches &&
-      !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      !reducedMotion.matches) {
     beginPeek();
     settlePeek(true);
     return;
@@ -1742,10 +1743,10 @@ function openPlayer(startY = innerHeight) {
   setPlayerPanel("queue", false);
   $("#queue-list").scrollTop = 0;
   history.pushState({ view: state.view, player: true }, "", "#player");
-  if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
+  if (!reducedMotion.matches)
     $("#player").animate([
       { transform: `translateY(${startY}px)` }, { transform: "translateY(0)" }
-    ], { duration: 300, easing: "cubic-bezier(.22,.75,.2,1)" });
+    ], { duration: 180, easing: motionEase });
   $("#close-player").focus();
 }
 let panelSlide = null;
@@ -1767,14 +1768,14 @@ function playerGhost() {
 }
 function animatePlayerExit() {
   stopPanelSlide();
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (reducedMotion.matches) return;
   const exit = document.createElement("div");
   exit.className = "player-exit player-open";
   exit.append(playerGhost());
   document.body.append(exit);
   const animation = exit.animate([
     { transform: "translateY(0)" }, { transform: "translateY(100%)" }
-  ], { duration: 310, easing: "cubic-bezier(.4,0,.8,.3)" });
+  ], { duration: 170, easing: "cubic-bezier(.4,0,.8,.3)" });
   animation.onfinish = () => exit.remove();
 }
 function setPlayerPanel(panel, animate = true, fromTop = false) {
@@ -1783,7 +1784,7 @@ function setPlayerPanel(panel, animate = true, fromTop = false) {
   stopPanelSlide();
   player.getAnimations().forEach((animation) => animation.cancel());
   const motion = animate && state.playerOpen &&
-    !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    !reducedMotion.matches;
   const ghost = motion ? playerGhost() : null;
   const queueScroll = $("#queue-list").scrollTop;
   player.dataset.panel = panel;
@@ -1794,7 +1795,7 @@ function setPlayerPanel(panel, animate = true, fromTop = false) {
     ghost.style.zIndex = panel === "song" ? "9" : "11";
     document.body.append(ghost);
     ghost.querySelector(".queue-list").scrollTop = queueScroll;
-    const timing = { duration: 310, easing: "cubic-bezier(.22,.75,.2,1)" };
+    const timing = { duration: 180, easing: motionEase };
     const animation = panel === "song"
       ? player.animate([{ transform: `translateY(${fromTop ? "-100%" : "100%"})` },
         { transform: "translateY(0)" }], timing)
@@ -1855,7 +1856,7 @@ function settlePanelDrag(commit, velocity = 0) {
   const to = commit ? innerHeight : 0;
   const start = drag.element.style.transform;
   const end = `translateY(${drag.entering ? innerHeight - to : drag.direction * to}px)`;
-  const duration = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 :
+  const duration = reducedMotion.matches ? 0 :
     finishDuration(Math.abs(to - from), velocity);
   if (commit && drag.action === "close") {
     suppressPlayerExit = true;
@@ -1875,7 +1876,7 @@ function settlePanelDrag(commit, velocity = 0) {
   if (!duration || start === end) { finish(); return; }
   const animation = drag.element.animate([
     { transform: start }, { transform: end }
-  ], { duration, easing: "cubic-bezier(.22,.75,.2,1)" });
+  ], { duration, easing: motionEase });
   drag.animation = animation;
   animation.onfinish = finish;
 }
@@ -1922,11 +1923,11 @@ $("#player").addEventListener("wheel", (event) => {
   const now = Date.now();
   if (!wheelPull && now < pullCooldown) return;
   event.preventDefault();
-  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  if (reducedMotion.matches) {
     if (Math.abs(event.deltaY) < 90) return;
     if (action === "close") closePlayer();
     else setPlayerPanel(action, false);
-    pullCooldown = now + 550;
+    pullCooldown = now + 320;
     return;
   }
   if (!wheelPull) {
@@ -1942,13 +1943,13 @@ $("#player").addEventListener("wheel", (event) => {
   clearTimeout(wheelPull.timer);
   if (wheelPull.distance >= 90) {
     wheelPull = null;
-    pullCooldown = now + 550;
+    pullCooldown = now + 320;
     settlePanelDrag(true, velocity);
   } else {
     wheelPull.timer = setTimeout(() => {
       wheelPull = null;
       settlePanelDrag(false);
-    }, 320);
+    }, 170);
   }
 }, { passive: false });
 let touchStart = null;
@@ -1981,7 +1982,7 @@ $("#player").addEventListener("touchmove", (event) => {
     const dy = event.touches[0].clientY - miniPull.y;
     if (Math.abs(dx) > Math.abs(dy) * 1.3 || dy >= -8) return;
     event.preventDefault();
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (reducedMotion.matches) return;
     if (!sheetPeek) beginPeek();
     const now = performance.now();
     miniPull.velocity = Math.max(0, (-dy - miniPull.drag) / Math.max(1, now - miniPull.at));
@@ -1991,7 +1992,7 @@ $("#player").addEventListener("touchmove", (event) => {
     return;
   }
   if (!touchStart || panelDrag?.settling ||
-      matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      reducedMotion.matches) return;
   const dx = event.touches[0].clientX - touchStart.x;
   const dy = event.touches[0].clientY - touchStart.y;
   if (panelDrag) {

@@ -66,6 +66,8 @@ with tempfile.TemporaryDirectory() as temp:
                 width: main.getBoundingClientRect().width};
             }""")
             assert slide["ghost"] and str(round(slide["width"])) in slide["from"]
+            assert 75 <= slide["duration"] <= 210
+            assert page.evaluate("finishDuration(700, .65) < finishDuration(700, 0)")
             page.wait_for_timeout(120)
             page.screenshot(path=str(Path(tempfile.gettempdir()) / "ytmp3-tab-mid.png"), animations="allow")
             page.wait_for_timeout(350)
@@ -266,6 +268,8 @@ with tempfile.TemporaryDirectory() as temp:
             page.screenshot(path=str(root / "queue.png"), full_page=True)
             shutil.copy2(root / "queue.png", Path(tempfile.gettempdir()) / "ytmp3-queue-check.png")
             page.locator("#expand-player").click()
+            assert page.locator("#player").evaluate(
+                "e => e.getAnimations()[0].effect.getTiming().duration") == 180
             page.wait_for_timeout(350)
             assert page.locator("#player").get_attribute("data-panel") == "song"
             assert not page.locator("#player-queue").is_visible()

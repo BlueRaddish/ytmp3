@@ -17,6 +17,8 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from email.utils import formatdate
 from http import HTTPStatus
@@ -110,18 +112,22 @@ class Library:
         except (OSError, ValueError):
             self.edits = {}
         self.tag_cache: dict[str, tuple[int, int, dict]] = {}
+        self.search_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+        self.search_slots = threading.BoundedSemaphore(2)
         # One conversion at a time avoids filename races and keeps ffmpeg load
         # modest. Raise workers and add atomic reservation if queues become slow.
         self.pool = ThreadPoolExecutor(max_workers=1)
 
     def tracks(self) -> list[dict]:
         entries = []
+        seen_paths = set()
         for index, root in enumerate([self.path, *self.includes]):
             paths = root.glob("*.mp3") if index == 0 else root.rglob("*.mp3")
             for path in paths:
                 if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(root):
                     continue
                 stat = path.stat()
+                seen_paths.add(str(path))
                 track_id = path.name if index == 0 else f"@{index - 1}/{path.relative_to(root).as_posix()}"
                 relative_folder = path.parent.relative_to(root).as_posix()
                 folder = root.name if relative_folder == "." else f"{root.name}/{relative_folder}"
@@ -137,6 +143,9 @@ class Library:
                                 "folder": folder, "folderId": f"{index}:{'' if relative_folder == '.' else relative_folder}",
                                 "rootFolder": root.name, "rootFolderId": f"{index}:",
                                 "size": stat.st_size, "modified": int(stat.st_mtime)})
+        with self.lock:
+            for stale in self.tag_cache.keys() - seen_paths:
+                del self.tag_cache[stale]
         return sorted(entries, key=lambda item: item["modified"], reverse=True)
 
     def _tags(self, path: Path, stat: os.stat_result) -> dict:
@@ -153,7 +162,8 @@ class Library:
                         artwork=bool(picture and image_type(picture.data) and len(picture.data) <= MAX_COVER))
         except Exception:
             pass  # An unreadable tag must not hide an otherwise playable file.
-        self.tag_cache[key] = (stat.st_mtime_ns, stat.st_size, data)
+        with self.lock:
+            self.tag_cache[key] = (stat.st_mtime_ns, stat.st_size, data)
         return data
 
     def _cover_file(self, track_id: str) -> Path:
@@ -277,6 +287,29 @@ class Library:
         if not isinstance(query, str) or not query.strip() or len(query.strip()) > 200:
             raise ValueError("Enter a search name between 1 and 200 characters.")
         query = query.strip()
+        now = time.monotonic()
+        with self.lock:
+            for key, (expires, _) in list(self.search_cache.items()):
+                if expires <= now:
+                    del self.search_cache[key]
+            cached = self.search_cache.get(query)
+            if cached:
+                self.search_cache.move_to_end(query)
+                return {"query": query, "results": [dict(item) for item in cached[1]["results"]]}
+        if not self.search_slots.acquire(blocking=False):
+            raise RuntimeError("Search is busy. Wait a moment and try again.")
+        try:
+            result = self._search(query)
+            with self.lock:
+                self.search_cache[query] = (time.monotonic() + 60, result)
+                self.search_cache.move_to_end(query)
+                while len(self.search_cache) > 16:
+                    self.search_cache.popitem(last=False)
+            return {"query": query, "results": [dict(item) for item in result["results"]]}
+        finally:
+            self.search_slots.release()
+
+    def _search(self, query: str) -> dict:
         try:
             with YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True,
                             "extract_flat": True, "playlistend": 12, "socket_timeout": 8,

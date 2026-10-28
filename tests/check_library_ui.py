@@ -564,13 +564,15 @@ with tempfile.TemporaryDirectory() as temp:
                   rootFolder: 'Music', rootFolderId: 'own', modified: 1, duration: 1, artwork: false}
               ]}));
               window.__scanRequests = 0;
+              window.__playbackReads = 0;
+              window.__playbackJson = '{}';
               window.Ytmp3Android = {
                 refreshTracks() { window.__scanRequests++; },
                 cachedTracks() { return JSON.stringify({tracks: [
                   {id: 'fresh.mp3', title: 'Fresh song', folder: 'Music', folderId: 'own',
                     rootFolder: 'Music', rootFolderId: 'own', modified: 2, duration: 1, artwork: false}
                 ]}); },
-                playback() { return '{}'; },
+                playback() { window.__playbackReads++; return window.__playbackJson; },
                 checkAppUpdate() {}
               };
             })();""")
@@ -580,6 +582,40 @@ with tempfile.TemporaryDirectory() as temp:
             assert native_page.evaluate("window.__scanRequests") == 1
             native_page.evaluate("window.ytmp3TracksReady(true)")
             assert native_page.get_by_text("Fresh song").is_visible()
+            refresh_cost = native_page.evaluate("""() => {
+              let writes=0;const original=Storage.prototype.setItem;
+              Storage.prototype.setItem=function(key,value){if(key==='ytmp3_snapshot')writes++;return original.call(this,key,value)};
+              const index=state.trackById;const data=JSON.parse(native.cachedTracks());
+              for(let i=0;i<20;i++)applyTracks(data);
+              const unchangedWrites=writes;
+              data.tracks[0].title='Updated song';applyTracks(data);
+              Storage.prototype.setItem=original;
+              return {unchangedWrites,writes,changed:state.trackById!==index};
+            }""")
+            assert refresh_cost == {"unchangedWrites": 0, "writes": 1, "changed": True}
+            assert native_page.get_by_text("Updated song").is_visible()
+            native_page.evaluate("""() => {
+              window.__hidden=false;
+              Object.defineProperty(document,'visibilityState',{get:()=>window.__hidden?'hidden':'visible'});
+              window.__playbackJson=JSON.stringify({id:'fresh.mp3',index:0,playing:false,position:0,duration:10000,shuffle:false,repeat:0});
+            }""")
+            native_page.wait_for_function("() => state.nativePlayback.id === 'fresh.mp3'")
+            native_page.evaluate("() => {window.__updates=0;window.__updateStacks=[];const originalPlayer=updatePlayer;updatePlayer=(...args)=>{window.__updates++;window.__updateStacks.push(new Error().stack);return originalPlayer(...args)}}")
+            native_page.wait_for_timeout(1100)
+            assert native_page.evaluate("window.__updates") == 0, native_page.evaluate("window.__updateStacks")
+            native_page.evaluate("window.__hidden=true;document.dispatchEvent(new Event('visibilitychange'));window.__playbackReads=0")
+            native_page.wait_for_timeout(1100)
+            assert native_page.evaluate("window.__playbackReads") == 0, "Hidden playback kept polling"
+            native_page.evaluate("""() => {
+              window.__playbackJson=JSON.stringify({id:'fresh.mp3',index:0,playing:true,position:3333,duration:10000});
+              window.__hidden=false;document.dispatchEvent(new Event('visibilitychange'));
+            }""")
+            assert native_page.evaluate("state.nativePlayback.position") == 3333, "Resume did not immediately refresh playback"
+            native_page.evaluate("dispatchEvent(new Event('pagehide'));window.__playbackReads=0")
+            native_page.wait_for_timeout(1100)
+            assert native_page.evaluate("window.__playbackReads") == 0, "Page teardown left a polling timer"
+            native_page.evaluate("dispatchEvent(new Event('pageshow'))")
+            assert native_page.evaluate("window.__playbackReads") == 1
             native_page.close()
             assert not errors, errors
             browser.close()

@@ -207,19 +207,25 @@ function applyTracks(data) {
   if (!Array.isArray(data?.tracks)) throw new Error("Invalid library response");
   const trackJson = JSON.stringify(data.tracks);
   const changed = trackJson !== state.trackJson;
-  state.tracks = data.tracks;
-  state.trackJson = trackJson;
-  state.trackById = new Map(state.tracks.map((track) => [track.id, track]));
+  if (changed) {
+    state.tracks = data.tracks;
+    state.trackJson = trackJson;
+    state.trackById = new Map(state.tracks.map((track) => [track.id, track]));
+  }
   state.snapshotAt = Date.now();
-  try {
-    localStorage.setItem("ytmp3_snapshot", JSON.stringify({ tracks: state.tracks, at: state.snapshotAt }));
-  } catch { /* Large libraries can exceed browser storage; the in-memory list still works. */ }
+  if (changed || state.snapshotAt - snapshotSavedAt >= 60000) {
+    try {
+      localStorage.setItem("ytmp3_snapshot", `{"tracks":${trackJson},"at":${state.snapshotAt}}`);
+      snapshotSavedAt = state.snapshotAt;
+    } catch { /* Large libraries can exceed browser storage; the in-memory list still works. */ }
+  }
   $("#connection").textContent = native ? "On this device" : "Connected";
   $("#connection").classList.remove("offline");
   $("#offline-banner").hidden = true;
   if (changed) render();
 }
 let nativeRefreshWaiters = [];
+let snapshotSavedAt = 0;
 window.ytmp3TracksReady = (ok) => {
   try {
     if (!ok) throw new Error("Library scan failed");
@@ -2228,9 +2234,16 @@ if (!native && "mediaSession" in navigator) {
   navigator.mediaSession.setActionHandler("nexttrack", () => move(1));
 }
 
-if (native) setInterval(() => {
+let nativePlaybackTimer = null;
+let nativePlaybackJson = "";
+function pollNativePlayback() {
+  nativePlaybackTimer = null;
+  if (document.visibilityState === "hidden") return;
   try {
-    const playback = JSON.parse(native.playback());
+    const json = native.playback();
+    if (json === nativePlaybackJson) return;
+    const playback = JSON.parse(json);
+    nativePlaybackJson = json;
     if (!playback.id && !state.nativePlayback.id) return;
     const changed = playback.id !== state.nativePlayback.id ||
       (playback.id && playback.index !== state.current);
@@ -2244,7 +2257,23 @@ if (native) setInterval(() => {
     if (changed && state.view === "browse") renderBrowseTracks();
     if (changed) renderQueue();
   } catch { /* The controller is reconnecting. */ }
-}, 500);
+  finally { nativePlaybackTimer = setTimeout(pollNativePlayback, 500); }
+}
+function stopNativePlaybackPoll() {
+  clearTimeout(nativePlaybackTimer);
+  nativePlaybackTimer = null;
+}
+if (native) {
+  nativePlaybackTimer = setTimeout(pollNativePlayback, 500);
+  document.addEventListener("visibilitychange", () => {
+    stopNativePlaybackPoll();
+    if (document.visibilityState !== "hidden") pollNativePlayback();
+  });
+  addEventListener("pagehide", stopNativePlaybackPoll);
+  addEventListener("pageshow", () => {
+    if (nativePlaybackTimer === null && document.visibilityState !== "hidden") pollNativePlayback();
+  });
+}
 
 $("#theme-button").addEventListener("click", () => {
   const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
@@ -2286,6 +2315,7 @@ try {
     state.trackJson = JSON.stringify(state.tracks);
     state.trackById = new Map(state.tracks.map((track) => [track.id, track]));
     state.snapshotAt = Number.isFinite(snapshot.at) ? snapshot.at : 0;
+    snapshotSavedAt = state.snapshotAt;
   }
 } catch { /* Ignore an invalid old snapshot. */ }
 render();

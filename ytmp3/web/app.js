@@ -38,7 +38,9 @@ const savedPlaylists = stored("ytmp3_playlists", []);
 const savedQueue = stored("ytmp3_queue", []);
 const savedFavorites = stored("ytmp3_favorites", []);
 const savedHidden = stored("ytmp3_hidden_tracks", []);
-const savedSettings = stored("ytmp3_settings", {});
+const storedSettings = stored("ytmp3_settings", {});
+const savedSettings = storedSettings && typeof storedSettings === "object" && !Array.isArray(storedSettings)
+  ? storedSettings : {};
 function routeView(hash) {
   const view = hash.replace(/^#/, "");
   return ({ library: "audio", settings: "more", about: "more", queue: "audio" })[view]
@@ -57,7 +59,9 @@ const state = {
   layout: ["list", "tiles", "compact"].includes(savedSettings.libraryView)
     ? savedSettings.libraryView : savedSettings.dense ? "compact" : "list",
   selectedPlaylist: null,
-  settings: { theme: "dark", speed: 1, ...savedSettings },
+  settings: { ...savedSettings,
+    theme: ["dark", "light", "system"].includes(savedSettings.theme) ? savedSettings.theme : "dark",
+    speed: Number.isFinite(savedSettings.speed) && savedSettings.speed >= .25 && savedSettings.speed <= 4 ? savedSettings.speed : 1 },
   nativePlayback: {},
   current: -1,
   view: routeView(location.hash),
@@ -2307,14 +2311,28 @@ if (received) {
 }
 const lastUpdateCheck = Number(localStorage.getItem("ytmp3_update_checked_at") || 0);
 if (Date.now() - lastUpdateCheck > 86400000) setTimeout(() => checkAppUpdate(true), 2000);
+function restoreSnapshotTracks(tracks) {
+  return tracks.filter((track) => track && typeof track === "object" && !Array.isArray(track)
+    && typeof track.id === "string" && track.id.trim()).map((track) => {
+    let clean = track;
+    const replace = (key, value) => { if (clean === track) clean = { ...track }; clean[key] = value; };
+    for (const key of ["title", "artist", "album", "folder", "folderId", "rootFolder", "rootFolderId"])
+      if (key in track && typeof track[key] !== "string") replace(key, "");
+    for (const key of ["duration", "modified", "size"])
+      if (key in track && !Number.isFinite(track[key])) replace(key, 0);
+    for (const key of ["artwork", "external"])
+      if (key in track && typeof track[key] !== "boolean") replace(key, false);
+    return clean;
+  });
+}
 try {
   const snapshot = JSON.parse(localStorage.getItem("ytmp3_snapshot")
     || sessionStorage.getItem("ytmp3_snapshot") || "null");
   if (snapshot?.tracks && Array.isArray(snapshot.tracks)) {
-    state.tracks = snapshot.tracks;
+    state.tracks = restoreSnapshotTracks(snapshot.tracks);
     state.trackJson = JSON.stringify(state.tracks);
     state.trackById = new Map(state.tracks.map((track) => [track.id, track]));
-    state.snapshotAt = Number.isFinite(snapshot.at) ? snapshot.at : 0;
+    state.snapshotAt = Number.isFinite(snapshot.at) && snapshot.at >= 0 ? Math.min(snapshot.at, Date.now()) : 0;
     snapshotSavedAt = state.snapshotAt;
   }
 } catch { /* Ignore an invalid old snapshot. */ }

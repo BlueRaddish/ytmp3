@@ -2,6 +2,7 @@
 
 import os
 import re
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -27,10 +28,24 @@ def is_rclone(target: str) -> bool:
 
 class Config:
     def __init__(self, data: dict, path: Path):
+        if not isinstance(data, dict):
+            raise ValueError("invalid config: expected a settings table")
+        for field in ("default", "template"):
+            if field in data and not isinstance(data[field], str):
+                raise ValueError(f"invalid config: {field} must be text")
+        destinations = data.get("dest", {})
+        if not isinstance(destinations, dict):
+            raise ValueError("invalid config: dest must be a table of destinations")
+        for name, entry in destinations.items():
+            if (not isinstance(name, str) or not name.strip() or not isinstance(entry, dict)
+                    or not isinstance(entry.get("target"), str) or not entry["target"].strip()):
+                raise ValueError("invalid config: each destination needs a name and a nonblank target")
+            if "template" in entry and not isinstance(entry["template"], str):
+                raise ValueError(f"invalid config: template for {name!r} must be text")
         self.path = path
         self.default = data.get("default") or ""
         self.template = data.get("template") or DEFAULT_TEMPLATE
-        self.dests: dict[str, dict] = dict(data.get("dest") or {})
+        self.dests: dict[str, dict] = dict(destinations)
 
     @classmethod
     def load(cls) -> "Config":
@@ -56,7 +71,19 @@ class Config:
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(self._dump(), encoding="utf-8")
+        text = self._dump()
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=self.path.parent,
+                    prefix=f".{self.path.name}.", suffix=".tmp", delete=False) as handle:
+                temporary = Path(handle.name)
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
     def _dump(self) -> str:
         lines = []

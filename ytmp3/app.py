@@ -111,6 +111,9 @@ class Library:
                 self.edits = {}
         except (OSError, ValueError):
             self.edits = {}
+        self.edits = {key: {field: value for field, value in edit.items()
+                           if field in {"title", "artist", "album"} and isinstance(value, str) and len(value) <= 160}
+                      for key, edit in self.edits.items() if isinstance(edit, dict)}
         self.tag_cache: dict[str, tuple[int, int, dict]] = {}
         self.search_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
         self.search_slots = threading.BoundedSemaphore(2)

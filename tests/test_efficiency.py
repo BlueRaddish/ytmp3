@@ -1,11 +1,23 @@
 """Resource bounds are tested through the app's consuming library operations."""
 import threading
+import json
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from ytmp3.app import Library
+
+
+def test_malformed_track_edits_keep_library_usable(tmp_path):
+    (tmp_path / "one.mp3").write_bytes(b"test")
+    (tmp_path / ".ytmp3-track-edits.json").write_text(json.dumps({
+        "one.mp3": {"title": [], "artist": {}, "album": "Valid album"}, "another.mp3": None
+    }), encoding="utf-8")
+    tracks = Library(tmp_path).tracks()
+    assert tracks[0]["title"] == "one"
+    assert tracks[0]["artist"] == ""
+    assert tracks[0]["album"] == "Valid album"
 
 
 def test_removed_tracks_release_tag_cache(tmp_path):

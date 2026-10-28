@@ -1,4 +1,5 @@
 import base64
+import json
 import shutil
 import subprocess
 import sys
@@ -110,6 +111,7 @@ with tempfile.TemporaryDirectory() as temp:
               send('touchstart', x, 350);
               send('touchmove', x + dx, 350 + dy);
               send('touchend', x + dx, 350 + dy);
+              return document.querySelector('#main').getAnimations()[0]?.effect.getTiming().duration ?? null;
             }"""
             page.evaluate(swipe, {"selector": "#track-list .track-meta", "dx": 12, "dy": 150})
             assert page.locator("#page-title").inner_text() == "Audio"
@@ -129,9 +131,9 @@ with tempfile.TemporaryDirectory() as temp:
             }""")
             assert drag == {"first": "translateX(-42px)", "second": "translateX(-70px)"}
             page.wait_for_timeout(180)
-            page.evaluate(swipe, {"selector": "#track-list .track-meta", "dx": -140})
+            fast_duration = page.evaluate(swipe, {"selector": "#track-list .track-meta", "dx": -140})
             assert page.locator("#page-title").inner_text() == "Playlists"
-            assert page.locator("#main").evaluate("e => e.getAnimations()[0].effect.getTiming().duration") < slide["duration"]
+            assert fast_duration is not None and fast_duration < slide["duration"]
             page.evaluate(swipe, {"selector": "#playlist-list", "dx": -140})
             assert page.locator("#page-title").inner_text() == "Playlists"
             page.evaluate(swipe, {"selector": ".content", "dx": 140})
@@ -285,10 +287,10 @@ with tempfile.TemporaryDirectory() as temp:
             page.wait_for_timeout(350)
             assert page.locator("#player").get_attribute("data-panel") == "song"
             assert not page.locator("#player-queue").is_visible()
-            assert page.locator(".player-art").bounding_box()["width"] > 200
+            assert page.locator("#player .player-art").bounding_box()["width"] > 200
             page.evaluate("audio.pause(); state.repeat = 'all'")
             current_before_swipe = page.evaluate("state.current")
-            page.evaluate(swipe, {"selector": ".player-art", "dx": -120})
+            page.evaluate(swipe, {"selector": "#player .player-art", "dx": -120})
             assert page.evaluate("state.current") != current_before_swipe
             page.evaluate("audio.pause(); state.repeat = 'off'; updatePlaybackModes()")
             assert page.locator("#close-player").is_visible()
@@ -449,6 +451,7 @@ with tempfile.TemporaryDirectory() as temp:
             assert not errors, errors
             page.screenshot(path=str(root / "mobile.png"), full_page=True)
             shutil.copy2(root / "mobile.png", Path(tempfile.gettempdir()) / "ytmp3-mobile-check.png")
+            page.close()
             desktop = browser.new_page(viewport={"width": 1440, "height": 900})
             desktop.on("pageerror", lambda error: errors.append(str(error)))
             desktop.goto(f"http://127.0.0.1:{server.server_port}/?key={server.key}")
@@ -617,6 +620,23 @@ with tempfile.TemporaryDirectory() as temp:
             native_page.evaluate("dispatchEvent(new Event('pageshow'))")
             assert native_page.evaluate("window.__playbackReads") == 1
             native_page.close()
+            malformed_snapshots = [
+                None, {}, {"tracks": None}, {"tracks": [None, {}, 42]},
+                {"tracks": [{"id": "old.mp3", "title": [], "artist": {}, "duration": "bad"}], "at": -1},
+            ]
+            for snapshot in malformed_snapshots:
+                recovery = browser.new_page(viewport={"width": 390, "height": 844})
+                recovery_errors = []
+                recovery.on("pageerror", lambda error: recovery_errors.append(str(error)))
+                recovery.add_init_script("""(() => {
+                  localStorage.setItem('ytmp3_snapshot', JSON.stringify(SNAPSHOT));
+                  localStorage.setItem('ytmp3_settings', JSON.stringify({theme:[],speed:'bad'}));
+                })();""".replace("SNAPSHOT", json.dumps(snapshot)))
+                recovery.goto(f"http://127.0.0.1:{server.server_port}/?key={server.key}")
+                recovery.locator("#track-list .track-row").first.wait_for()
+                assert not recovery_errors, recovery_errors
+                assert recovery.evaluate("state.settings.speed") == 1
+                recovery.close()
             assert not errors, errors
             browser.close()
     finally:

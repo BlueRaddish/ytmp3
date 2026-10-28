@@ -2301,6 +2301,12 @@ function receiveShared(text) {
   toast("Shared link ready to save");
 }
 window.ytmp3Receive = receiveShared;
+window.ytmp3SourceChosen = (url) => {
+  if (!Ytmp3Sources.isURL(url)) return false;
+  setView("browse");
+  startURLDownload(url);
+  return true;
+};
 const shared = new URLSearchParams(location.search);
 const received = shared.get("url") || shared.get("text")?.match(/https?:\/\/\S+/)?.[0];
 if (received) {

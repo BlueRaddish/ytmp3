@@ -143,7 +143,9 @@ with tempfile.TemporaryDirectory() as temp:
             native = browser.new_page(viewport={"width": 390, "height": 844})
             native.add_init_script("""window.__opened = []; window.Ytmp3Android = {
               openSourcePreview(...args) { window.__opened.push(args); }, cachedTracks() { return '{"tracks":[]}'; },
-              refreshTracks() {}, playback() { return '{}'; }, checkAppUpdate() {}
+              refreshTracks() {}, playback() { return '{}'; }, checkAppUpdate() {},
+              submit(url) { window.__saved = url; return '{"job":"native-job"}'; },
+              job() { return '{"state":"done","saved":1,"total":1}'; }
             };""")
             native.goto(f"{base}/?key={server.key}#browse")
             native.locator("#url-input").fill("Some artist & song")
@@ -152,6 +154,14 @@ with tempfile.TemporaryDirectory() as temp:
             assert opened[0][0] == "https://www.youtube.com/results?search_query=Some%20artist%20%26%20song"
             assert opened[0][1] is True
             assert native.locator("#source-preview-content iframe").count() == 0, "Untrusted content entered the bridged app WebView"
+            # Android may recreate the underlying app at its default Audio screen.
+            native.goto(f"{base}/?key={server.key}")
+            assert native.evaluate("state.view") == "audio"
+            assert native.evaluate("window.ytmp3SourceChosen('https://example.com/recovered-track')") is True
+            assert native.evaluate("window.__saved") == "https://example.com/recovered-track"
+            assert native.locator("#job-container").inner_text().startswith("Saved")
+            assert native.evaluate("state.view") == "browse"
+            assert native.evaluate("window.ytmp3SourceChosen('javascript:alert(1)')") is False
             assert not errors, errors
             browser.close()
     finally:

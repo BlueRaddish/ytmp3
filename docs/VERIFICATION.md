@@ -23,6 +23,9 @@ restart persistence, safe template encoding, keyboard dismissal, narrow light/da
 layouts, and the Android bridge adapter. Its screenshots default to
 `%TEMP%/ytmp3-source-search`; set `YTMP3_EVIDENCE` to retain them elsewhere. Fixtures
 do not prove live YouTube, video playback, or the native WebView.
+The bridge adapter also returns a selected page to a freshly loaded Audio screen,
+verifying that Browse opens and the download starts after app recreation. Native
+delivery waits for the trusted app page to finish loading and acknowledge receipt.
 
 For the external boundary, run `Library(...).search("a test query")` against
 YouTube or drive an unmocked local app (`python shim.py app --library PATH`). Verify

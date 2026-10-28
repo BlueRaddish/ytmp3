@@ -167,7 +167,6 @@ const Ytmp3Sources = (() => {
       dialog.close();
       useLink(url, true);
     };
-    window.ytmp3SourceChosen = (url) => useLink(url, true);
   }
   function mount(options) {
     mounted = options;

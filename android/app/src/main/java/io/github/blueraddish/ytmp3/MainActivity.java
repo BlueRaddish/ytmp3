@@ -79,11 +79,15 @@ public final class MainActivity extends Activity {
     private final List<Runnable> pendingPlayback = new ArrayList<>();
     private String pendingCoverId;
     private String pendingRingtoneId;
+    private String pendingSourceUrl;
+    private boolean appReady;
+    private boolean sourceDeliveryRunning;
     private volatile String latestApkUrl;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        if (state != null) pendingSourceUrl = state.getString("pendingSourceUrl");
         getWindow().setStatusBarColor(Color.rgb(16, 27, 28));
         getWindow().setNavigationBarColor(Color.rgb(16, 27, 28));
         library = new AndroidLibrary(this);
@@ -98,6 +102,13 @@ public final class MainActivity extends Activity {
         web.addJavascriptInterface(new Bridge(), "Ytmp3Android");
         web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String url) {
+                if (url != null && url.startsWith(ORIGIN + "/")) {
+                    appReady = true;
+                    deliverSourcePage();
+                }
+            }
+
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 if (ORIGIN.equals(uri.getScheme() + "://" + uri.getHost())) return false;
@@ -162,6 +173,22 @@ public final class MainActivity extends Activity {
         setContentView(root);
         String shared = sharedUrl(getIntent());
         web.loadUrl(ORIGIN + "/" + (shared == null ? "" : "?url=" + Uri.encode(shared)));
+    }
+
+    @Override protected void onSaveInstanceState(Bundle state) {
+        state.putString("pendingSourceUrl", pendingSourceUrl);
+        super.onSaveInstanceState(state);
+    }
+
+    private void deliverSourcePage() {
+        if (!appReady || pendingSourceUrl == null || sourceDeliveryRunning) return;
+        String url = pendingSourceUrl;
+        sourceDeliveryRunning = true;
+        web.evaluateJavascript("typeof window.ytmp3SourceChosen === 'function' && window.ytmp3SourceChosen("
+            + JSONObject.quote(url) + ")", received -> {
+                sourceDeliveryRunning = false;
+                if ("true".equals(received) && url.equals(pendingSourceUrl)) pendingSourceUrl = null;
+            });
     }
 
     @Override protected void onStart() {
@@ -423,8 +450,10 @@ public final class MainActivity extends Activity {
         if (request == PICK_SOURCE_PAGE) {
             if (result == RESULT_OK && data != null) {
                 String url = data.getStringExtra("url");
-                if (SourcePreviewActivity.safeUrl(url)) web.evaluateJavascript(
-                    "window.ytmp3SourceChosen(" + JSONObject.quote(url) + ")", null);
+                if (SourcePreviewActivity.safeUrl(url)) {
+                    pendingSourceUrl = url;
+                    deliverSourcePage();
+                }
             }
             return;
         }

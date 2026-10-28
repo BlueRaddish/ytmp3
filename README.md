@@ -9,7 +9,11 @@ Long queues load more rows as you scroll; the button at the end also loads the n
 
 Swipe left or right across a main screen to move between the four destinations, or use a horizontal trackpad gesture on PC. Each destination remembers its scroll position. In the expanded song view, swipe the artwork left or right to skip tracks. The player sheet and screen swipes follow your finger; short pulls settle back, while completed pulls finish from the release point. Vertical scrolling and the player's pull gestures remain available.
 
-Browse lists every file in the accessible library. Narrow the list by folder or filename and tap a row to play from that selection. Paste a URL to see a title, source, and artwork preview when yt-dlp can extract them; the preview does not save or play the link. The Save button starts the download after you decide to keep it.
+Browse lists every file in the accessible library. Narrow the list by folder or filename and tap a row to play from that selection. In **Search or add a link**, enter a name to search YouTube, or paste a track/playlist URL to save it as before. The globe beside the field selects a search source; **Manage sources** adds, edits, or removes custom websites. To add one, copy that website's search-results URL and replace the search words with `{query}`, for example `https://example.com/search?q={query}`. Sources and the selected source are remembered on that device.
+
+On Android, a name search opens the actual website in an in-app preview panel. Browse the results, open a track or playlist, and tap **Save MP3** at the bottom. Back navigates within the website; Close returns to your library and keeps your search. Websites cannot access the app's library or playback controls through this panel.
+
+On PC, YouTube names return a compact result list inside Browse. Select a result to open its website player preview, then choose **Save MP3**. Custom sites open in a preview panel where supported; some sites prevent browser embedding, so **Open website** and a track-link field are available as a fallback. Searches and previews do not download audio. Pasted URLs still show title, source, and artwork metadata when available, with a separate Save action.
 
 The last library listing opens from a local cache, including after an app restart. A rescan runs in the background and refreshes the listing when files change. Use **More → Rescan** to request another scan.
 
@@ -95,7 +99,10 @@ python tests/check_metadata.py
 python tests/check_updates.py
 node tests/check_playlists.js
 python tests/check_library_ui.py  # requires Playwright and a Chromium browser
+python tests/check_source_search.py  # controlled search/download fixtures in a real browser
 cd android && ./gradlew assembleDebug
 ```
 
 The project source is licensed under [MIT](LICENSE). The Android APK includes separately licensed components described in [Android third-party notices](android/THIRD_PARTY.md). Software licenses do not grant rights to media obtained with it.
+
+See [verification routes](docs/VERIFICATION.md) for local search and website-preview checks.

@@ -450,12 +450,13 @@ function render(includeQueue = true) {
 function renderBrowse() {
   main.innerHTML = `<div class="content">
     <section class="download-panel" aria-labelledby="add-heading">
-      <form id="url-form"><label id="add-heading" for="url-input">Add from link</label>
-        <div class="url-form"><input id="url-input" class="url-input" type="url" required
-          inputmode="url" autocomplete="url" placeholder="Track or playlist URL"
-          aria-label="Track or playlist URL"><button class="primary-button symbol-button" data-icon="download" type="submit" aria-label="Save MP3 from link" title="Save MP3">Save MP3</button></div>
+      <form id="url-form"><label id="add-heading" for="url-input">Search or add a link</label>
+        <div class="url-form"><div class="source-picker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10" cy="11" r="8"/><path d="M2 11h16M10 3c-5 5-5 11 0 16M10 3c5 5 5 11 0 16m9-3 3 3-3 3"/></svg><select id="source-select" aria-label="Search source"></select></div><input id="url-input" class="url-input" type="text" required
+          autocomplete="off" placeholder="Search YouTube or paste a link"
+          aria-label="Search by name or paste a track or playlist URL"><button class="primary-button symbol-button" type="submit" aria-label="Search YouTube" title="Search YouTube">⌕</button></div>
       </form><div id="job-container"></div>
       <div id="link-preview" class="link-preview" role="status" hidden></div>
+      <section id="source-results" class="source-results" aria-label="Search results" hidden></section>
     </section>
     <section class="browse-library" aria-labelledby="browse-heading">
       <div class="browse-heading"><h2 id="browse-heading">All media</h2><span id="browse-count"></span></div>
@@ -474,6 +475,11 @@ function renderBrowse() {
   input.value = state.urlDraft;
   input.addEventListener("input", (event) => { state.urlDraft = event.target.value; scheduleLinkPreview(); });
   $("#url-form").addEventListener("submit", submitURL);
+  Ytmp3Sources.mount({ native, onChoose: (url) => {
+    state.urlDraft = url;
+    input.value = url;
+    scheduleLinkPreview();
+  }, onSave: (url) => startURLDownload(url) });
   renderJob();
   scheduleLinkPreview();
   const tracks = state.tracks.filter((track) => !state.hiddenTracks.has(track.id));
@@ -1551,9 +1557,17 @@ window.ytmp3PlaylistFile = importPlaylistFile;
 async function submitURL(event) {
   event.preventDefault();
   const input = $("#url-input");
-  const button = $("#url-form button[type=submit]");
   const url = input.value.trim();
   if (!url) return;
+  if (!Ytmp3Sources.isURL(url)) {
+    Ytmp3Sources.search(url);
+    return;
+  }
+  await startURLDownload(url);
+}
+
+async function startURLDownload(url) {
+  const button = $("#url-form button[type=submit]");
   button.disabled = true;
   try {
     let data;
@@ -1569,7 +1583,7 @@ async function submitURL(event) {
     if (data.error) throw new Error(data.error);
     state.job = { id: data.job, state: "queued" };
     renderJob();
-    pollJob(data.job);
+    pollJob(data.job, url);
   } catch (error) {
     toast(error.message);
   } finally {
@@ -1599,7 +1613,7 @@ function renderJob() {
   container.append(box);
 }
 
-async function pollJob(id) {
+async function pollJob(id, sourceUrl) {
   try {
     if (native) state.job = JSON.parse(native.job(id));
     else {
@@ -1611,8 +1625,10 @@ async function pollJob(id) {
     renderJob();
     if (state.job.state === "done") {
       toast(state.job.failed ? `${state.job.saved} saved; ${state.job.failed} skipped.` : "Saved to your library");
-      state.urlDraft = "";
-      if ($("#url-input")) $("#url-input").value = "";
+      if (state.urlDraft.trim() === sourceUrl) {
+        state.urlDraft = "";
+        if ($("#url-input")) $("#url-input").value = "";
+      }
       await refresh();
       if (state.job.playlist && Array.isArray(state.job.tracks)) {
         const ids = state.job.tracks.filter((track) => state.trackById.has(track));
@@ -1621,10 +1637,10 @@ async function pollJob(id) {
       return;
     }
     if (state.job.state === "error") return;
-    setTimeout(() => pollJob(id), 1000);
+    setTimeout(() => pollJob(id, sourceUrl), 1000);
   } catch {
     showOffline();
-    setTimeout(() => pollJob(id), 3000);
+    setTimeout(() => pollJob(id, sourceUrl), 3000);
   }
 }
 

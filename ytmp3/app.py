@@ -272,6 +272,40 @@ class Library:
             logging.info("Link preview unavailable", exc_info=True)
             return {"error": "Preview unavailable."}
 
+    def search(self, query: str) -> dict:
+        """Read a small set of YouTube results without resolving/downloading audio."""
+        if not isinstance(query, str) or not query.strip() or len(query.strip()) > 200:
+            raise ValueError("Enter a search name between 1 and 200 characters.")
+        query = query.strip()
+        try:
+            with YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True,
+                            "extract_flat": True, "playlistend": 12, "socket_timeout": 8,
+                            "retries": 0, "extractor_retries": 0}) as ydl:
+                info = ydl.extract_info(f"ytsearch12:{query}", download=False)
+            if not isinstance(info, dict) or not isinstance(info.get("entries"), (list, tuple)):
+                raise RuntimeError("Invalid search response")
+            results = []
+            for item in info["entries"][:12]:
+                if not isinstance(item, dict) or not re.fullmatch(r"[\w-]{11}", str(item.get("id", "")), re.ASCII):
+                    continue
+                video_id = item["id"]
+                thumbnails = item.get("thumbnails") or []
+                thumbnail = item.get("thumbnail") or next((image.get("url") for image in thumbnails
+                    if isinstance(image, dict) and image.get("url")), "")
+                image = urlsplit(thumbnail)
+                if image.scheme != "https" or not image.hostname or image.username or image.password:
+                    thumbnail = ""
+                duration = item.get("duration")
+                results.append({"url": f"https://www.youtube.com/watch?v={video_id}",
+                                "title": str(item.get("title") or "Untitled video")[:200],
+                                "creator": str(item.get("uploader") or item.get("channel") or "")[:100],
+                                "duration": duration if isinstance(duration, (int, float)) and 0 <= duration < 864000 else None,
+                                "thumbnail": thumbnail})
+            return {"query": query, "results": results}
+        except Exception as exc:
+            logging.info("YouTube search unavailable", exc_info=True)
+            raise RuntimeError("Could not search YouTube. Check your connection and try again.") from exc
+
     def job(self, job_id: str) -> dict | None:
         with self.lock:
             item = self.jobs.get(job_id)
@@ -390,7 +424,7 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy",
-                         "default-src 'self'; script-src 'self'; style-src 'self'; "
+                         "default-src 'self'; script-src 'self'; style-src 'self'; frame-src https:; "
                          "img-src 'self' data: https:; media-src 'self'; connect-src 'self'; "
                          "base-uri 'none'; form-action 'self'")
         for name, value in (headers or {}).items():
@@ -430,7 +464,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self._asset("index.html", "text/html; charset=utf-8")
         elif parts.path == "/app.css":
             self._asset("app.css", "text/css; charset=utf-8")
-        elif parts.path in {"/app.js", "/playlist-store.js"}:
+        elif parts.path in {"/app.js", "/playlist-store.js", "/source-search.js"}:
             self._asset(parts.path[1:], "text/javascript; charset=utf-8")
         elif parts.path == "/manifest.webmanifest":
             self._asset("manifest.webmanifest", "application/manifest+json")
@@ -468,7 +502,7 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._authorized():
             return
-        if self.path not in {"/api/download", "/api/preview", "/api/tracks/edit", "/api/update/install"}:
+        if self.path not in {"/api/download", "/api/preview", "/api/search", "/api/tracks/edit", "/api/update/install"}:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         origin = self.headers.get("Origin")
@@ -492,6 +526,8 @@ class AppHandler(BaseHTTPRequestHandler):
                 self.server.library.edit_track(body)
             elif self.path == "/api/preview":
                 preview = self.server.library.preview(body["url"])
+            elif self.path == "/api/search":
+                search = self.server.library.search(body["query"])
             elif self.path == "/api/update/install":
                 job = self.server.install_update()
             else:
@@ -499,10 +535,15 @@ class AppHandler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError) as exc:
             self._json(400, {"error": str(exc)})
             return
+        except RuntimeError as exc:
+            self._json(502, {"error": str(exc)})
+            return
         if self.path == "/api/tracks/edit":
             self._json(200, {})
         elif self.path == "/api/preview":
             self._json(200, preview)
+        elif self.path == "/api/search":
+            self._json(200, search)
         elif self.path == "/api/update/install":
             self._json(202, job)
         else:

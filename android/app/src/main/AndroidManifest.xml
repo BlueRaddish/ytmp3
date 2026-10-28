@@ -18,6 +18,9 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+        <activity android:name=".SourcePreviewActivity" android:exported="false"
+            android:theme="@android:style/Theme.Material.Dialog.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
         <service android:name=".PlaybackService" android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>

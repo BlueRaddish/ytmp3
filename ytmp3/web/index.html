@@ -9,6 +9,7 @@
   <link rel="icon" href="/icon-192.png" sizes="192x192">
   <link rel="stylesheet" href="/app.css">
   <script src="/playlist-store.js" defer></script>
+  <script src="/source-search.js" defer></script>
   <script src="/app.js" defer></script>
   <title>ytmp3 · your audio library</title>
 </head>
@@ -80,6 +81,27 @@
     <audio id="audio" preload="metadata"></audio>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="source-dialog" aria-labelledby="source-dialog-title">
+    <div class="preview-heading"><h2 id="source-dialog-title">Search sources</h2><button id="close-sources" type="button" class="icon-button" aria-label="Close sources">×</button></div>
+    <div id="source-list"></div>
+    <form id="source-form">
+      <h3 id="source-form-title">Add a custom source</h3>
+      <label for="source-name">Name</label><input id="source-name" maxlength="40" required placeholder="Website name">
+      <label for="source-template">Search URL</label><input id="source-template" type="text" maxlength="2048" required placeholder="https://example.com/search?q={query}" spellcheck="false" aria-describedby="source-template-help source-error">
+      <p id="source-template-help" class="form-note">Search on the website, copy its results URL, and replace the search words with <code>{query}</code>.</p>
+      <p id="source-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions"><button id="cancel-source-edit" type="button" class="row-button" hidden>Cancel edit</button><button type="submit" class="primary-button">Save source</button></div>
+      <p id="source-saved" role="status" class="form-note"></p>
+    </form>
+  </dialog>
+  <dialog id="source-preview-dialog" class="source-preview-dialog" aria-labelledby="source-preview-title">
+    <div class="preview-heading"><div><h2 id="source-preview-title">Website preview</h2><span id="source-preview-host" class="form-note"></span></div><button id="close-source-preview" class="icon-button" type="button" aria-label="Close website preview">×</button></div>
+    <div id="source-preview-content"></div>
+    <p id="source-preview-help" class="form-note"></p>
+    <label for="source-preview-url" id="source-preview-url-label">Selected link</label><input id="source-preview-url" type="url" aria-labelledby="source-preview-url-label">
+    <p id="source-preview-error" class="form-error" role="alert"></p>
+    <div class="dialog-actions"><a id="source-preview-open" class="row-button button-link" target="_blank" rel="noopener noreferrer">Open website ↗</a><button id="save-source-preview" type="button" class="primary-button">Save MP3</button></div>
+  </dialog>
   <dialog id="playlist-dialog" aria-labelledby="playlist-dialog-title">
     <form method="dialog" id="playlist-picker">
       <h2 id="playlist-dialog-title">Add to playlist</h2>

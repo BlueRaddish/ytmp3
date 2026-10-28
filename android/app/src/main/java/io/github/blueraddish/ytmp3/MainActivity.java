@@ -63,6 +63,7 @@ public final class MainActivity extends Activity {
     private static final int PICK_PLAYLIST = 20;
     private static final int PICK_COVER = 21;
     private static final int PICK_RINGTONE_PERMISSION = 22;
+    private static final int PICK_SOURCE_PAGE = 23;
     private AndroidLibrary library;
     private WebView web;
     private MediaController controller;
@@ -130,6 +131,7 @@ public final class MainActivity extends Activity {
                     case "/app.css": asset = "app.css"; type = "text/css"; break;
                     case "/app.js": asset = "app.js"; type = "text/javascript"; break;
                     case "/playlist-store.js": asset = "playlist-store.js"; type = "text/javascript"; break;
+                    case "/source-search.js": asset = "source-search.js"; type = "text/javascript"; break;
                     case "/manifest.webmanifest": asset = "manifest.webmanifest"; type = "application/manifest+json"; break;
                     case "/icon-192.png": asset = "icon-192.png"; type = "image/png"; break;
                     case "/icon-512.png": asset = "icon-512.png"; type = "image/png"; break;
@@ -250,6 +252,11 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public String job(String id) { return library.job(id); }
         @JavascriptInterface public String preview(String url) { return library.preview(url); }
         @JavascriptInterface public String previewJob(String id) { return library.previewJob(id); }
+        @JavascriptInterface public void openSourcePreview(String url, boolean search, String theme) {
+            if (!SourcePreviewActivity.safeUrl(url)) return;
+            handler.post(() -> startActivityForResult(new Intent(MainActivity.this, SourcePreviewActivity.class)
+                .putExtra("url", url).putExtra("search", search).putExtra("theme", theme), PICK_SOURCE_PAGE));
+        }
         @JavascriptInterface public String exportTrack(String id) { return library.exportTrack(id); }
         @JavascriptInterface public String folders() { return library.folders(); }
         @JavascriptInterface public String editTrack(String id, String title, String artist, String album) {
@@ -413,6 +420,14 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == PICK_SOURCE_PAGE) {
+            if (result == RESULT_OK && data != null) {
+                String url = data.getStringExtra("url");
+                if (SourcePreviewActivity.safeUrl(url)) web.evaluateJavascript(
+                    "window.ytmp3SourceChosen(" + JSONObject.quote(url) + ")", null);
+            }
+            return;
+        }
         if (request == PICK_PLAYLIST) {
             if (result == RESULT_OK && data != null && data.getData() != null) readPlaylist(data.getData());
             return;

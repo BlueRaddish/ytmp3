@@ -21,9 +21,37 @@ Browse shows all accessible media in one compact list. A folder filter and
 filename search narrow it without leaving the page. The link field stays small;
 after a URL is entered, yt-dlp extracts a title, source, and artwork when
 available. The desktop preview floats below the field and the phone preview
-appears inline. A metadata preview avoids embedding arbitrary websites, which
-many sites disallow. The preview makes no download and never replaces the
+appears inline. Pasted-link metadata makes no download and never replaces the
 user's explicit Save action.
+
+### Name searches and website previews (October 28)
+
+The user's requested loop is name → choose source → inspect actual website →
+choose a track → Save MP3 → return to the same search and library. Keep one field
+for names and URLs. The adjacent globe opens a native source selector, with
+YouTube built in and a shallow custom-source editor. Source names and HTTPS
+templates persist locally; `{query}` marks the encoded search words. Changing
+source preserves the typed draft and clears results from the previous source.
+
+The Google app's in-app webpage pattern is the reference: show the website in a
+panel, preserve the search behind it, offer Back and Close, and attach the save
+action to the current page. Android uses a separate unprivileged WebView Activity
+with native toolbar and Save MP3 button. Third-party pages never load in the
+app's JavaScript-bridge WebView. No download occurs until the user taps Save.
+Search pages cannot be saved as an entire result playlist by accident.
+
+The PC browser has different embedding constraints. YouTube returns up to 12 flat
+yt-dlp results, then opens its embeddable website player in a modal. Arbitrary
+custom sites use a sandboxed preview and an explicit Open website / paste-link
+fallback; the app cannot inspect cross-origin navigation or bypass framing rules.
+Keep empty, loading, and failed search states separate; cancel stale searches,
+preserve drafts on failures and after preview downloads, and restore focus on Close.
+
+References: [Google webpage preferences](https://support.google.com/websearch/answer/7013866),
+[Android WebView bridge guidance](https://developer.android.com/privacy-and-security/risks/insecure-webview-native-bridges),
+[browser framing restrictions](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Frame-Options).
+
+### Player interaction
 Use symbols for repeated page actions, with a 44 px touch target, a screen-reader
 name, and a desktop tooltip. Keep explicit text in confirmation dialogs and menus.
 In the expanded player, keep the current track fixed above an independently

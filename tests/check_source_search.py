@@ -58,6 +58,7 @@ with tempfile.TemporaryDirectory() as temp:
             field.fill("Test artist")
             page.get_by_role("button", name="Search YouTube", exact=True).click()
             page.get_by_role("button", name="Preview Test artist <script> example", exact=True).wait_for()
+            assert page.locator(".download-panel").bounding_box()["width"] > 800, "Desktop results are constrained by the old link panel"
             assert not selected, "A search downloaded audio"
             page.locator(".search-result").click()
             assert page.locator("#source-preview-dialog").evaluate("e => e.open")

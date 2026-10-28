@@ -37,6 +37,14 @@ cd android
 .\gradlew.bat assembleDebug --console=plain
 ```
 
+On this Windows PC the default 3 GB heap failed to start under memory pressure.
+The following process-local override built the APK successfully; it does not
+change the machine or the project's normal Gradle settings:
+
+```powershell
+.\gradlew.bat assembleDebug --console=plain --no-daemon --max-workers=1 '-Dorg.gradle.jvmargs=-Xms64m -Xmx640m -XX:MaxMetaspaceSize=192m -XX:ReservedCodeCacheSize=48m -XX:ActiveProcessorCount=2 -XX:+UseSerialGC -Dfile.encoding=UTF-8'
+```
+
 Use an isolated emulator or an authorized phone. Install over the existing APK
 with `adb install -r` and preserve its data. Search a name, verify the actual
 website opens in SourcePreviewActivity, open a result, inspect Back/Close, then

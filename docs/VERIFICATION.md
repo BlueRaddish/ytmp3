@@ -58,3 +58,25 @@ A build or browser adapter fixture does not establish native-device success.
 Record attempted routes, failures, output hash, and remaining coverage in the
 dated project worklog. Local debug iterations keep the existing public version;
 release/version/feed changes follow RELEASING.md only when a release is approved.
+
+## Repeated-work and resource measurements (Windows)
+
+Install the optional verification dependencies (`psutil`, `playwright`, `Pillow`)
+in the development environment; ffmpeg and the Edge path in the script must be
+available. These are not application dependencies. Run sequentially with enough
+free system commit space; do not close the user's applications to make room.
+
+```powershell
+python tests/measure_efficiency.py --repo C:/path/to/checkout --output C:/outside-repo/run.json
+```
+
+Use the same script against both revisions. Alternate fresh-process baseline and
+candidate runs and retain failed attempts. The probe uses temporary own-tone MP3s,
+5,000 synthetic tracks, a 1,000-item queue and controlled native/search adapters.
+It records refresh/render latency, snapshot writes, polling/redraw counts,
+deleted-file tag-cache retention, repeated extractor work and the owned process
+tree's memory/CPU/I/O/handles. It also saves a matching screenshot. Never run it
+against the user's normal library or browser profile.
+
+The native adapter does not establish Android lifecycle, power or VRAM behavior.
+See [the October 28 ledger](OPTIMIZATION.md) for measured outcomes and limits.

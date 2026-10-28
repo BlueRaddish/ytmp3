@@ -2,7 +2,6 @@
 
 External results/downloads are controlled fixtures; live sites are a separate probe.
 """
-import json
 import os
 from pathlib import Path
 import sys

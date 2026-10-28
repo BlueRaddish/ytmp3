@@ -256,12 +256,19 @@ with tempfile.TemporaryDirectory() as temp:
             assert page.locator("#queue-list .drag-handle").first.inner_text() == "⠿"
             bounds = page.locator("#queue-list").bounding_box()
             assert bounds["x"] == 0 and bounds["width"] == 390
-            banner_y = page.locator("#expand-player").bounding_box()["y"]
-            page.locator("#queue-list").evaluate("e => { const spacer = document.createElement('div'); spacer.id = 'scroll-check'; spacer.style.height = '1200px'; e.append(spacer); e.scrollTop = 300; }")
-            assert page.locator("#queue-list").evaluate("e => e.scrollTop") > 0
-            assert page.locator("#expand-player").bounding_box()["y"] == banner_y
-            page.locator("#scroll-check").evaluate("e => e.remove()")
-            page.locator("#queue-list").evaluate("e => e.scrollTop = 0")
+            # Sample the layout in one turn, before playback events can rebuild the queue.
+            scroll_check = page.locator("#queue-list").evaluate("""e => {
+              const banner = document.querySelector('#expand-player');
+              const before = banner.getBoundingClientRect().y;
+              const spacer = document.createElement('div');
+              spacer.style.height = '1200px';
+              e.append(spacer); e.scrollTop = 300;
+              const result = {scroll: e.scrollTop, before, after: banner.getBoundingClientRect().y};
+              spacer.remove(); e.scrollTop = 0;
+              return result;
+            }""")
+            assert scroll_check["scroll"] > 0
+            assert scroll_check["after"] == scroll_check["before"]
             pull = page.evaluate("""() => {
               const target = document.querySelector('#queue-list .queue-play');
               const send = (type, y) => {

@@ -62,6 +62,51 @@ Record attempted routes, failures, output hash, and remaining coverage in the
 dated project worklog. Local debug iterations keep the existing public version;
 release/version/feed changes follow RELEASING.md only when a release is approved.
 
+## Intermittent Android pauses
+
+`PlaybackService` keeps the latest 64 playback changes in the private
+`playback-trace` preferences and also emits them under the `ytmp3-playback` logcat
+tag. The trace has timestamps, playback position/state, pause reason, suppression
+reason, controller package, errors/retries and service lifecycle events. It records
+changes only, without polling, track titles or URLs. Preferences survive service
+and process recreation; very abrupt termination can lose the last asynchronous
+write. A new service session without a preceding `service_destroyed` event is a
+lead to investigate, not proof that Android killed the app.
+
+Use an authorized debug phone, substitute its actual serial, and collect promptly
+after an unexpected pause **before tapping Play**:
+
+```powershell
+adb devices -l
+adb -s SERIAL exec-out run-as io.github.blueraddish.ytmp3 cat shared_prefs/playback-trace.xml
+adb -s SERIAL logcat -d -s ytmp3-playback:I
+adb -s SERIAL shell dumpsys audio
+adb -s SERIAL shell dumpsys media_session
+adb -s SERIAL shell dumpsys power
+adb -s SERIAL shell dumpsys activity exit-info io.github.blueraddish.ytmp3
+```
+
+`audio_focus_loss` identifies a pause requested by Android's focus handling;
+correlate the timestamp with the focus command history in `dumpsys audio` to
+identify the competing app. Transient focus loss appears as suppression reason
+1 and normally resumes after focus returns. A permanent loss stays paused until
+Play. `audio_output_disconnected` identifies Android's becoming-noisy event
+(for example, headphones disconnecting). `user_request` plus a `controller` event
+helps identify app/media-button requests. An `error` event identifies a player
+failure rather than an intentional pause. Do not override focus/noisy protection
+or assume battery optimization is the cause without this evidence.
+
+Verify a diagnostic APK with real local MP3 playback: advance in the foreground,
+send the Activity to the background, turn the screen off, then return and check
+that the actual position advanced. Check the service is foreground and its wake
+lock exists. Include manual pause/resume and a separate audio-focus client with
+transient and permanent requests; assert distinct trace reasons and the expected
+automatic/manual resume behavior. Confirm the trace remains bounded and survives
+process exit. An emulator proves these routes on that emulator; Samsung battery
+management, Bluetooth interruptions and the reported handset failure still need
+real-device evidence. A successful build or a 1.0.0 version label does not identify
+the APK actually installed; retain its hash and update time.
+
 ## Repeated-work and resource measurements (Windows)
 
 Install the optional verification dependencies (`psutil`, `playwright`, `Pillow`)

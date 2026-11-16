@@ -8,6 +8,20 @@ Use `X.Y.Z` for published releases. Bump `X` for a major compatibility or produc
 
 The update manifest advertises tagged numeric releases. It accepts `X.Y.Z`, so local iterations do not go into `updates.json`.
 
+## Diagnostic downloads on GitHub
+
+When a diagnostic download is explicitly requested, publish a GitHub **prerelease**
+using a descriptive nonnumeric tag, such as `playback-diagnostic-20261116`, pinned
+to the exact tested code commit. Retain the existing app version/code for this
+iteration and leave `updates.json` on the stable release. Attach the signed APK,
+matching project source archive, checksums, build identity and third-party
+license/notices. State the tested behavior and unresolved handset coverage; a
+diagnostic build must not be described as a confirmed fix. Keep the download
+discoverable from the README. Existing native-runtime provenance limitations in
+`android/THIRD_PARTY.md` also apply to these downloads.
+
+## Stable release
+
 1. Bump `pyproject.toml`, `ytmp3/__init__.py`, Android `versionName`, and Android `versionCode`. The version code must increase for Android to accept an update.
 2. Run the checks in the README and build the APK. Test the APK with an install over the preceding version. Confirm the new layout and assets appear without clearing app data, and exercise playback, sharing, and the update control. Loop a short MP3 in the background for several minutes and check `adb shell dumpsys media_session` for an active playback state; inspect `adb logcat -s ytmp3-playback:E` for stalls. While a track plays, tap its media notification and confirm the app returns to the foreground with playback still active. Use the same Android package ID and signing key as the preceding APK. The current APK is debug signed; keep that keystore backed up. A new key will require uninstalling the old app, which removes its private library.
 3. Commit the code, tag it `vX.Y.Z`, and push both to GitHub. The PC update button installs this tag through pip in the active Python environment. Verify the tag exists before advertising it.

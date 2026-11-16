@@ -49,6 +49,8 @@ The web app can receive shared links when installed from a supporting browser on
 
 ## Android app
 
+Download the [playback diagnostic APK](https://github.com/BlueRaddish/ytmp3/releases/download/playback-diagnostic-20261116/ytmp3-playback-diagnostic-0cb9e61.apk) from the [GitHub prerelease](https://github.com/BlueRaddish/ytmp3/releases/tag/playback-diagnostic-20261116). It records interruption reasons for investigating unexpected pauses; the reported handset cause remains unconfirmed. The prerelease includes source, checksums and third-party notices. This testing build retains version 1.0.0 / Android code 19 and is separate from the stable in-app update feed.
+
 The Android app runs yt-dlp and ffmpeg **on the phone**. It stores MP3s in its own on-device library and works without a PC server. It appears in Android's Share menu for text links; a shared URL fills the form and waits for you to tap **Save MP3**. **Save file** exports a copy to `Music/ytmp3` for other apps.
 
 In **More → Media library**, choose additional MP3 folders with Android's folder picker. The app remembers the selected folders and rescans them on launch or when you tap **Rescan library**. Subfolders are included. Remove a folder in More to stop listing it; its files stay where they are. Playlists, queue edits, dark/light/device theme, library layouts, and playback speed are available on the phone. Audio keeps playing with the screen locked and offers Android media notification controls with track artwork. Playlist URLs download up to 100 items on the phone and create a local playlist of successful tracks. The track menu can share MP3s or set one as the phone ringtone; Android asks you to allow system-setting changes before setting a ringtone.

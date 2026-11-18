@@ -636,4 +636,25 @@ final class AndroidLibrary {
         try { return new JSONObject().put("error", message == null ? "Operation failed." : message).toString(); }
         catch (JSONException ignored) { return "{\"error\":\"Operation failed.\"}"; }
     }
+
+    void exportPlaybackReport(Uri destination, java.util.function.Consumer<String> finished) {
+        exports.execute(() -> {
+            String failure = null;
+            try {
+                byte[] report = PlaybackTrace.export(context).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                try (OutputStream output = context.getContentResolver().openOutputStream(destination, "wt")) {
+                    if (output == null) throw new IOException("Could not open report destination");
+                    output.write(report);
+                }
+            } catch (Exception error) {
+                Log.e("ytmp3-playback", "Report export failed", error);
+                failure = "Could not save the playback report. Try exporting again.";
+            }
+            String result = failure;
+            new android.os.Handler(context.getMainLooper()).post(() -> {
+                toast(result == null ? "Playback report saved" : result);
+                finished.accept(result);
+            });
+        });
+    }
 }

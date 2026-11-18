@@ -64,6 +64,8 @@ public final class MainActivity extends Activity {
     private static final int PICK_COVER = 21;
     private static final int PICK_RINGTONE_PERMISSION = 22;
     private static final int PICK_SOURCE_PAGE = 23;
+    private static final int SAVE_PLAYBACK_REPORT = 24;
+    private boolean playbackReportPending;
     private AndroidLibrary library;
     private WebView web;
     private MediaController controller;
@@ -273,6 +275,22 @@ public final class MainActivity extends Activity {
     }
 
     private final class Bridge {
+        @JavascriptInterface public void exportPlaybackReport() {
+            handler.post(() -> {
+                if (playbackReportPending) return;
+                playbackReportPending = true;
+                try {
+                    startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                        .addCategory(Intent.CATEGORY_OPENABLE).setType("application/json")
+                        .putExtra(Intent.EXTRA_TITLE, "ytmp3-playback-" + System.currentTimeMillis() + ".json"),
+                        SAVE_PLAYBACK_REPORT);
+                } catch (Exception error) {
+                    playbackReportResult("error");
+                    android.widget.Toast.makeText(MainActivity.this, "Could not open the file picker.",
+                        android.widget.Toast.LENGTH_LONG).show();
+                }
+            });
+        }
         @JavascriptInterface public String cachedTracks() { return scannedTracks; }
         @JavascriptInterface public void refreshTracks() { requestTrackScan(); }
         @JavascriptInterface public String submit(String url) { return library.submit(url); }
@@ -447,6 +465,16 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == SAVE_PLAYBACK_REPORT) {
+            if (result != RESULT_OK || data == null || data.getData() == null) {
+                playbackReportResult("cancelled");
+            } else {
+                if (appReady) web.evaluateJavascript("window.ytmp3PlaybackReportResult('saving')", null);
+                library.exportPlaybackReport(data.getData(), failure -> playbackReportResult(
+                    failure == null ? "saved" : "error"));
+            }
+            return;
+        }
         if (request == PICK_SOURCE_PAGE) {
             if (result == RESULT_OK && data != null) {
                 String url = data.getStringExtra("url");
@@ -484,6 +512,12 @@ public final class MainActivity extends Activity {
             library.addFolder(uri);
             web.evaluateJavascript("window.ytmp3FoldersChanged()", null);
         } catch (SecurityException ignored) { }
+    }
+
+    private void playbackReportResult(String result) {
+        playbackReportPending = false;
+        if (!isDestroyed() && appReady)
+            web.evaluateJavascript("window.ytmp3PlaybackReportResult(" + JSONObject.quote(result) + ")", null);
     }
 
     private void startRingtone(String id) {

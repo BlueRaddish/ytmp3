@@ -12,6 +12,8 @@ python tests/check_app.py
 python tests/check_metadata.py
 python tests/check_updates.py
 node tests/check_playlists.js
+python tests/check_playback_reports.py
+python tests/check_playback_reports_ui.py
 python tests/check_library_ui.py
 python tests/check_source_search.py
 ```
@@ -64,17 +66,39 @@ release/version/feed changes follow RELEASING.md only when a release is approved
 
 ## Intermittent Android pauses
 
+Playback reports are now automatic. A pause, suppression or player error pins a
+separate snapshot with the preceding events and subsequent controller/resume
+events. The user can resume playback, close/reopen the app, and export later from
+**More → Playback reports → Export playback report**. Do not require the user to
+stay paused, connect USB at the moment of the fault, or interrupt their day.
+
+Private `files/playback-reports/` retains up to64 reports /2MiB, each at most64KiB.
+Writes run on one background worker, coalesce updates to the same report and
+replace completed snapshots atomically where supported. Interrupted temporary
+writes are cleaned on the next access. Reports include screen/power/charging
+state and connected output-device types, without track names, URLs, device names
+or addresses. Capture is local; there is no upload. All pauses are evidence,
+including intentional ones; saving a report does not label it an application bug.
+
+While actually playing, a30-second checkpoint records the last known position
+for an interrupted process. It stops immediately when playback stops and owns
+no additional wake lock. A later service start preserves a possible interrupted
+session and the app's own Android exit history (Android11+). A missing clean exit
+is a lead, not proof of a system kill. A sudden power/process loss can still lose
+the latest asynchronous write.
+
 `PlaybackService` keeps the latest 64 playback changes in the private
 `playback-trace` preferences and also emits them under the `ytmp3-playback` logcat
 tag. The trace has timestamps, playback position/state, pause reason, suppression
 reason, controller package, errors/retries and service lifecycle events. It records
-changes only, without polling, track titles or URLs. Preferences survive service
+changes and active-playback checkpoints, without track titles or URLs. Preferences survive service
 and process recreation; very abrupt termination can lose the last asynchronous
 write. A new service session without a preceding `service_destroyed` event is a
 lead to investigate, not proof that Android killed the app.
 
-Use an authorized debug phone, substitute its actual serial, and collect promptly
-after an unexpected pause **before tapping Play**:
+Use an authorized debug phone and substitute its actual serial. These can be
+collected later, after resume/restart; the independent saved report is the key
+artifact. The normal export includes saved reports, rolling context and exit info.
 
 ```powershell
 adb devices -l
@@ -84,6 +108,7 @@ adb -s SERIAL shell dumpsys audio
 adb -s SERIAL shell dumpsys media_session
 adb -s SERIAL shell dumpsys power
 adb -s SERIAL shell dumpsys activity exit-info io.github.blueraddish.ytmp3
+adb -s SERIAL shell run-as io.github.blueraddish.ytmp3 ls files/playback-reports
 ```
 
 `audio_focus_loss` identifies a pause requested by Android's focus handling;
@@ -106,6 +131,21 @@ process exit. An emulator proves these routes on that emulator; Samsung battery
 management, Bluetooth interruptions and the reported handset failure still need
 real-device evidence. A successful build or a 1.0.0 version label does not identify
 the APK actually installed; retain its hash and update time.
+
+`check_playback_reports.py` uses JDK17+ to exercise the production file store on
+real temporary files: coalescing, persistence/recreation, interrupted writes,
+64-report/2MiB limits, safe paths, oversize rejection and a real IO failure. It
+fails if the Java check gives no receipt. `check_playback_reports_ui.py` verifies
+native-adapter discovery/keyboard operation, duplicate suppression, picker cancel,
+save/error recovery, state retention and narrow light/dark layouts. Its fixtures
+do not establish native file-picker or on-device persistence behavior.
+
+The native acceptance route must pause then resume without collecting immediately,
+roll the64-event ordinary history past that pause, restart the app, and export
+through Android's real save picker. Confirm the original pause, later resume and
+device context remain in the JSON; include cancel/retry, file permissions and
+return to More. Preserve the existing user's queue/settings/media and remove
+only generated test files. Validate active checkpoints stop while paused.
 
 ## Repeated-work and resource measurements (Windows)
 

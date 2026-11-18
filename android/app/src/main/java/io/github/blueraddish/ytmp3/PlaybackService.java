@@ -3,6 +3,11 @@ package io.github.blueraddish.ytmp3;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.os.SystemClock;
+import android.os.Handler;
+import android.os.Looper;
+import android.media.AudioDeviceCallback;
+import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
@@ -19,6 +24,16 @@ public final class PlaybackService extends MediaSessionService {
     private MediaSession session;
     private PlaybackTrace trace;
     private long lastStallRetryAt;
+    private final Handler traceHandler = new Handler(Looper.getMainLooper());
+    private final Runnable checkpointTask = this::checkpoint;
+    private AudioManager audioManager;
+    private AudioDeviceCallback audioDevices;
+
+    private void checkpoint() {
+        if (session == null || !session.getPlayer().isPlaying()) return;
+        trace.record("checkpoint", session.getPlayer(), "");
+        traceHandler.postDelayed(checkpointTask, 30_000);
+    }
 
     @Override public void onCreate() {
         super.onCreate();
@@ -31,8 +46,12 @@ public final class PlaybackService extends MediaSessionService {
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build();
         trace = new PlaybackTrace(this);
-        trace.record("service_created", player, "");
+        trace.begin(player);
         player.addListener(new Player.Listener() {
+            @Override public void onIsPlayingChanged(boolean playing) {
+                traceHandler.removeCallbacks(checkpointTask);
+                if (playing) traceHandler.postDelayed(checkpointTask, 30_000);
+            }
             @Override public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
                 trace.record("play_when_ready", player, PlaybackTrace.playWhenReadyReason(reason));
             }
@@ -80,6 +99,16 @@ public final class PlaybackService extends MediaSessionService {
                 }
             })
             .build();
+        audioManager = getSystemService(AudioManager.class);
+        audioDevices = new AudioDeviceCallback() {
+            @Override public void onAudioDevicesAdded(AudioDeviceInfo[] devices) {
+                trace.record("audio_outputs_added", player, Integer.toString(devices.length));
+            }
+            @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] devices) {
+                trace.record("audio_outputs_removed", player, Integer.toString(devices.length));
+            }
+        };
+        if (audioManager != null) audioManager.registerAudioDeviceCallback(audioDevices, traceHandler);
     }
 
     @Nullable @Override public MediaSession onGetSession(MediaSession.ControllerInfo controllerInfo) {
@@ -92,6 +121,8 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     @Override public void onDestroy() {
+        traceHandler.removeCallbacksAndMessages(null);
+        if (audioManager != null && audioDevices != null) audioManager.unregisterAudioDeviceCallback(audioDevices);
         if (session != null) {
             trace.record("service_destroyed", session.getPlayer(), "");
             session.getPlayer().release();

@@ -31,3 +31,11 @@ jobs:
       # descriptions, and documented flags matching the parser.
       - name: test
         run: python -m pytest -q
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: playback report retention
+        run: python tests/check_playback_reports.py

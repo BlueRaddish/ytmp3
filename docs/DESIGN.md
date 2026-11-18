@@ -6,6 +6,22 @@ touchable on phone, efficient on PC. Tone: clear, capable, quiet. One teal accen
 light and dark themes, system sans with tabular numerals, subtle motion. The
 interface is a yt-dlp wrapper and player; source credit remains visible.
 
+### Playback report loop
+
+Android saves a separate report automatically on a pause, interruption or player
+error. Resuming playback and ordinary listening preserve that report; the user
+does not need to stay paused, connect USB or stop their day. Keep a bounded local
+archive, with recent context and subsequent resume/controller events. A possible
+interrupted process is a diagnostic lead, not an assertion that Android killed it.
+Record only playback/device state; omit track names, URLs and audio-device names.
+
+The recovery path is More → Playback reports → Export playback report whenever
+convenient. Use Android's save picker, retain More/queue/settings on return,
+disable duplicate exports while choosing/saving, acknowledge an actual successful
+write, and reset cleanly on cancellation or failure so retry remains available.
+The report remains private until the user chooses to export or share it. No
+automatic upload, account setup or special storage permission is needed.
+
 ## Screen space rule
 
 Put the task content and the controls used with it at the top of each screen.

@@ -1412,6 +1412,16 @@ $("#queue-mix").addEventListener("click", () => {
 });
 $("#queue-loop").addEventListener("click", () => setRepeat(state.repeat === "all" ? "off" : "all"));
 
+let playbackReportBusy = false;
+window.ytmp3PlaybackReportResult = (result) => {
+  playbackReportBusy = result === "saving";
+  const button = $("#export-playback-report");
+  if (button) {
+    button.disabled = playbackReportBusy;
+    button.textContent = playbackReportBusy ? "Saving report…" : "Export playback report";
+  }
+};
+
 function renderMore() {
   main.innerHTML = `<div class="content">
     <section class="settings-card"><h2>Interface</h2>
@@ -1430,7 +1440,12 @@ function renderMore() {
       <p id="update-notes" hidden></p>
       <div class="section-actions"><button id="check-update" class="row-button symbol-button" data-icon="refresh" type="button" aria-label="Check for app updates" title="Check for updates">Check now</button>
         <button id="install-update" class="primary-button" type="button" hidden></button></div>
-    </section><details class="settings-card about-details"><summary><h2>About ytmp3</h2></summary>
+    </section>
+    ${native ? `<section class="settings-card"><h2>Playback reports</h2>
+      <p>Pauses and errors are saved automatically on this phone. Keep listening and export later, whenever convenient.</p>
+      <button id="export-playback-report" class="row-button" type="button" ${playbackReportBusy ? "disabled" : ""}>${playbackReportBusy ? "Saving report…" : "Export playback report"}</button>
+    </section>` : ""}
+    <details class="settings-card about-details"><summary><h2>About ytmp3</h2></summary>
       <p>Downloads use <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener noreferrer">yt-dlp</a> and ffmpeg. ytmp3 provides the library and player.</p>
       <p>Save content you are authorized to copy.</p>
       ${native ? '<p>Android includes <a href="https://github.com/yausername/youtubedl-android">youtubedl-android</a> (<a href="/licenses/youtubedl-android-GPL-3.0.txt">GPL-3.0 license</a>).</p>' : ''}
@@ -1450,6 +1465,13 @@ function renderMore() {
   $("#rescan").addEventListener("click", () => refresh());
   $("#check-update").addEventListener("click", () => checkAppUpdate(false));
   $("#install-update").addEventListener("click", installAppUpdate);
+  if (native) $("#export-playback-report").addEventListener("click", (event) => {
+    if (playbackReportBusy) return;
+    playbackReportBusy = true;
+    event.currentTarget.disabled = true;
+    event.currentTarget.textContent = "Choose a location…";
+    native.exportPlaybackReport();
+  });
   renderUpdateCard();
   if (native) {
     $("#add-folder").addEventListener("click", () => native.pickFolder());
